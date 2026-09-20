@@ -1,0 +1,104 @@
+{
+  "templates": [
+    {
+  "id": "sounding",
+  "name": "Sounding Rocket",
+  "description": "A small single-stage vehicle. Enough to reach the edge of space. Nothing more.",
+  "stages": 1,
+  "hasBoosters": false,
+  "maxBoosters": 0,
+  "activeSlots": ["engine_cluster", "thrust_structure", "oxidizer_tank", "fuel_tank", "avionics", "power", "payload", "nose_cone"],
+  "sizeClassMax": "S",
+  "baseStructuralMassKg": 120,
+  "baseCostUsd": 5000000,
+  "payloadToLEOKg": 50,
+  "recommendedFor": "Learning the interface, lunar flybys"
+},
+    {
+      "id": "small_orbital",
+      "name": "Small Orbital",
+      "description": "A lightweight two-stage vehicle. Flown for small satellites and low-cost interplanetary probes.",
+      "stages": 2,
+      "hasBoosters": false,
+      "maxBoosters": 0,
+      "activeSlots": [
+        "engine_cluster", "thrust_structure", "fuel_tank", "oxidizer_tank", "intertank",
+        "pressurant", "interstage", "separation",
+        "upper_engine", "upper_tank", "avionics", "power", "payload", "nose_cone"
+      ],
+      "sizeClassMax": "S",
+      "baseStructuralMassKg": 340,
+      "baseCostUsd": 15000000,
+      "payloadToLEOKg": 300,
+      "recommendedFor": "Lunar missions, small planetary probes"
+    },
+    {
+      "id": "medium_orbital",
+      "name": "Medium Orbital",
+      "description": "The workhorse class. Flown for most commercial and scientific missions in the 2020s and 2030s.",
+      "stages": 2,
+      "hasBoosters": false,
+      "maxBoosters": 0,
+      "activeSlots": [
+        "engine_cluster", "thrust_structure", "fuel_tank", "oxidizer_tank", "intertank",
+        "pressurant", "grid_fins", "interstage", "separation",
+        "upper_engine", "upper_tank", "avionics", "power", "payload", "nose_cone"
+      ],
+      "sizeClassMax": "M",
+      "baseStructuralMassKg": 1500,
+      "baseCostUsd": 65000000,
+      "payloadToLEOKg": 8000,
+      "recommendedFor": "Mars and Venus orbiters, small landers"
+    },
+    {
+      "id": "heavy_orbital",
+      "name": "Heavy Orbital",
+      "description": "A heavy-lift vehicle with strap-on boosters. Required for large payloads to the inner planets.",
+      "stages": 2,
+      "hasBoosters": true,
+      "maxBoosters": 4,
+      "activeSlots": [
+        "engine_cluster", "thrust_structure", "fuel_tank", "oxidizer_tank", "intertank",
+        "pressurant", "grid_fins", "interstage", "separation",
+        "upper_engine", "upper_tank", "avionics", "power", "payload", "nose_cone"
+      ],
+      "sizeClassMax": "L",
+      "baseStructuralMassKg": 4000,
+      "baseCostUsd": 140000000,
+      "payloadToLEOKg": 26000,
+      "recommendedFor": "Mars landers, outer planet orbiters"
+    },
+    {
+      "id": "super_heavy",
+      "name": "Super-Heavy",
+      "description": "The largest class in service. Only practical for outer system missions with long flight times.",
+      "stages": 2,
+      "hasBoosters": true,
+      "maxBoosters": 6,
+      "activeSlots": [
+        "engine_cluster", "thrust_structure", "fuel_tank", "oxidizer_tank", "intertank",
+        "pressurant", "grid_fins", "interstage", "separation",
+        "upper_engine", "upper_tank", "avionics", "power", "payload", "nose_cone"
+      ],
+      "sizeClassMax": "XL",
+      "baseStructuralMassKg": 9000,
+      "baseCostUsd": 600000000,
+      "payloadToLEOKg": 60000,
+      "recommendedFor": "Europa, Titan, Uranus, Triton, Pluto"
+    },
+    {
+      "id": "custom",
+      "name": "Custom",
+      "description": "Start from nothing. Every slot is yours. Every mistake is yours too.",
+      "stages": 2,
+      "hasBoosters": true,
+      "maxBoosters": 6,
+      "activeSlots": ["engine_cluster", "thrust_structure", "fuel_tank", "oxidizer_tank", "avionics", "power", "payload", "nose_cone"],
+      "sizeClassMax": "XL",
+      "baseStructuralMassKg": 0,
+      "baseCostUsd": 0,
+      "payloadToLEOKg": 0,
+      "recommendedFor": "Experienced players who want full control"
+    }
+  ]
+}
