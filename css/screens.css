@@ -1,14 +1,16 @@
-/* ---------- ROCKET SELECT ---------- */
-
+/* ============================================================
+   ROCKET SELECT
+   ============================================================ */
 .rocket-select {
   padding: 32px 40px;
   overflow-y: auto;
   height: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 .rs-header { margin-bottom: 28px; }
 .rs-title { font-size: 16px; letter-spacing: 4px; color: var(--accent); margin-bottom: 8px; }
-.rs-subtitle { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; }
+.rs-subtitle { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; line-height: 1.5; }
 
 .rs-grid {
   display: grid;
@@ -26,12 +28,17 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  touch-action: manipulation;
 }
 
 .template-card:hover {
   border-color: var(--accent);
   background: var(--bg-3);
   transform: translateY(-2px);
+}
+.template-card:active {
+  transform: translateY(0) scale(0.98);
+  border-color: var(--accent);
 }
 
 .tc-name { font-size: 14px; letter-spacing: 2px; color: var(--accent); font-weight: 700; }
@@ -43,8 +50,9 @@
 .tc-stat-value { font-size: 12px; color: var(--text); font-weight: 700; }
 .tc-tag { font-size: 10px; letter-spacing: 1px; color: var(--text-dim); padding-top: 10px; border-top: 1px solid var(--border); }
 
-/* ---------- BUILDER ---------- */
-
+/* ============================================================
+   BUILDER — Desktop: 3-column grid
+   ============================================================ */
 .builder {
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -61,11 +69,13 @@
   background: var(--bg-2);
   font-size: 11px;
   letter-spacing: 2px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .builder-top-left { color: var(--text-dim); }
 .builder-top-left strong { color: var(--accent); margin-right: 12px; }
-.builder-top-right { display: flex; gap: 8px; }
+.builder-top-right { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .builder-main {
   display: grid;
@@ -79,6 +89,8 @@
   border-right: 1px solid var(--border);
   padding: 20px;
   overflow-y: auto;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 .bm-h2 {
@@ -93,9 +105,16 @@
   position: relative;
   background: #050509;
   min-height: 0;
+  touch-action: none;              /* OrbitControls gets all touch events */
+  overscroll-behavior: contain;
 }
 
-.builder-canvas-wrap canvas { display: block; width: 100%; height: 100%; }
+.builder-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
 
 .builder-hint {
   position: absolute;
@@ -109,6 +128,7 @@
   background: rgba(10, 10, 15, 0.7);
   padding: 6px 12px;
   border: 1px solid var(--border);
+  white-space: nowrap;
 }
 
 .builder-parts {
@@ -119,6 +139,8 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 .bp-slot-label {
@@ -148,9 +170,12 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  touch-action: manipulation;
+  min-height: 60px;
 }
 
 .part-option:hover { border-color: var(--accent); background: #1e1e2a; }
+.part-option:active { background: #1e1e2a; border-color: var(--accent); }
 .part-option.selected { border-color: var(--accent); background: rgba(34, 211, 238, 0.08); }
 .part-option.installed { border-color: var(--good); }
 .part-option.too-big { opacity: 0.35; pointer-events: none; }
@@ -172,6 +197,7 @@
   letter-spacing: 2px;
   cursor: pointer;
   font-weight: 700;
+  touch-action: manipulation;
 }
 
 .bp-install:hover { background: #4ee0f5; }
@@ -180,11 +206,13 @@
   background: transparent;
   color: var(--bad);
   border: 1px solid var(--bad);
-  padding: 8px 12px;
+  padding: 10px 12px;
+  min-height: 40px;
   font-family: inherit;
   font-size: 10px;
   letter-spacing: 2px;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .bp-remove:hover { background: rgba(239, 68, 68, 0.1); }
@@ -198,6 +226,7 @@
   align-items: center;
   gap: 20px;
   min-height: 52px;
+  flex-shrink: 0;
 }
 
 .engineer-msg {
@@ -213,12 +242,231 @@
 .engineer-msg.block { color: var(--bad); font-weight: 700; }
 .engineer-msg.ok { color: var(--good); }
 
-.fault-list { display: flex; flex-direction: column; gap: 4px; }
+/* Slot button styles (used in builder and meter sidebar) */
+.slot-btn {
+  touch-action: manipulation;
+  min-height: 32px;
+}
 
-.fault-item { display: flex; gap: 8px; align-items: baseline; }
-.fault-sev { font-size: 9px; letter-spacing: 1px; min-width: 60px; font-weight: 700; }
-.fault-sev.info { color: var(--text-dim); }
-.fault-sev.caution { color: var(--warn); }
-.fault-sev.critical { color: var(--bad); }
-.fault-sev.block { color: var(--bad); }
-.fault-text { font-size: 11px; color: var(--text); }
+/* ============================================================
+   MOBILE — Builder stacks vertically
+   ============================================================ */
+@media (max-width: 900px) {
+
+  .builder-top {
+    padding: 8px 12px;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .builder-top-left {
+    font-size: 10px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .builder-top-left strong {
+    margin-right: 6px;
+    font-size: 11px;
+  }
+  .builder-top-left span {
+    font-size: 9px;
+    letter-spacing: 1px;
+  }
+
+  .builder-top-right {
+    gap: 4px;
+    flex: 0 0 auto;
+  }
+  .builder-top-right .btn-primary,
+  .builder-top-right .btn-secondary {
+    padding: 8px 10px;
+    min-height: 36px;
+    font-size: 9px;
+    letter-spacing: 1px;
+  }
+
+  /* Stack the main area */
+  .builder-main {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Meters become a compact 4-column row at the top */
+  .builder-meters {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    padding: 10px 12px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow: visible;
+    flex-shrink: 0;
+    order: 1;
+  }
+  .builder-meters .bm-h2 { display: none; }
+  .builder-meters .meter {
+    margin: 0;
+    min-width: 0;
+  }
+  .builder-meters .meter-bar { height: 6px; margin-bottom: 4px; }
+  .builder-meters .meter-value {
+    font-size: 9px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Slot list becomes a horizontal scrolling row */
+  .builder-meters #slot-list {
+    grid-column: 1 / -1;
+    display: flex !important;
+    flex-direction: row !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px !important;
+    padding: 8px 0 2px;
+    margin-top: 4px;
+    border-top: 1px solid var(--border);
+    scrollbar-width: thin;
+  }
+  .builder-meters #slot-list::-webkit-scrollbar { height: 4px; }
+  .builder-meters #slot-list::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+  }
+  .builder-meters #slot-list .slot-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+    min-height: 40px;
+    padding: 10px 14px !important;
+    font-size: 11px !important;
+  }
+
+  /* Canvas sits in the middle */
+  .builder-canvas-wrap {
+    height: 42vh;
+    min-height: 240px;
+    flex-shrink: 0;
+    order: 2;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .builder-hint {
+    font-size: 9px;
+    padding: 4px 8px;
+    bottom: 8px;
+    letter-spacing: 1px;
+  }
+
+  /* Parts panel fills the rest */
+  .builder-parts {
+    flex: 1 1 auto;
+    min-height: 280px;
+    border-left: none;
+    padding: 14px 12px;
+    order: 3;
+  }
+
+  .bp-slot-label { font-size: 12px; letter-spacing: 2px; }
+  .bp-slot-desc { font-size: 11px; }
+
+  .part-option {
+    padding: 14px;
+    min-height: 76px;
+  }
+  .po-name { font-size: 13px; }
+  .po-desc { font-size: 11px; line-height: 1.55; }
+  .po-stats { font-size: 10px; gap: 8px; }
+  .po-heritage { font-size: 9px; }
+
+  .bp-remove {
+    padding: 12px;
+    min-height: 48px;
+    font-size: 11px;
+    margin-bottom: 8px;
+  }
+
+  /* Bottom bar — sticky at the bottom */
+  .builder-bottom {
+    padding: 10px 14px;
+    min-height: 56px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  .engineer-msg {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+}
+
+/* Very small phones — tighter */
+@media (max-width: 480px) {
+  .builder-canvas-wrap {
+    height: 38vh;
+    min-height: 200px;
+  }
+  .builder-meters {
+    padding: 8px;
+    gap: 6px;
+  }
+  .builder-meters .meter-value { font-size: 8px; }
+  .part-option { padding: 12px; }
+}
+
+/* Landscape phone — squeeze the canvas */
+@media (max-height: 500px) and (orientation: landscape) {
+  .builder-canvas-wrap {
+    height: 55vh;
+    min-height: 180px;
+  }
+  .builder-meters {
+    padding: 6px 10px;
+  }
+  .builder-parts {
+    min-height: 200px;
+  }
+}
+
+/* ============================================================
+   ROCKET SELECT — mobile
+   ============================================================ */
+@media (max-width: 900px) {
+  .rocket-select {
+    padding: 20px 14px;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+  .rs-header { margin-bottom: 16px; }
+  .rs-title { font-size: 14px; letter-spacing: 3px; }
+  .rs-subtitle { font-size: 11px; line-height: 1.6; }
+
+  .rs-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .template-card {
+    padding: 16px;
+    gap: 10px;
+  }
+  .template-card:hover { transform: none; }
+  .template-card:active {
+    transform: scale(0.98);
+    border-color: var(--accent);
+    background: var(--bg-3);
+  }
+
+  .tc-name { font-size: 13px; letter-spacing: 1.5px; }
+  .tc-desc {
+    font-size: 11px;
+    min-height: 0;
+    line-height: 1.55;
+  }
+  .tc-stats { padding-top: 10px; }
+  .tc-stat-value { font-size: 12px; }
+  .tc-tag { font-size: 10px; padding-top: 8px; }
+}
