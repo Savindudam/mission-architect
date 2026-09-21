@@ -2,7 +2,12 @@ import { state, installPart, removePart, setValidation, setFlex, totals } from '
 import { validate } from '../engine/validate.js';
 import { computeFlex } from '../engine/flex.js';
 import { createScene } from '../three/scene.js';
-import { buildRocket, applyFlex } from '../three/rocket.js';
+import {
+  buildRocket, applyFlex,
+  buildSupportTower, resetClamps,
+  playLaunchSequence, hideAllFlames, computeFlightQuality,
+  computeStackPositions,
+} from '../three/rocket.js';
 import * as THREE from 'three';
 
 const SLOT_LABELS = {
@@ -49,8 +54,6 @@ export function mountBuilder(root) {
 
   const template = state.template;
 
-  console.log('[builder] MOUNT | template:', template.id, '| catalogue:', state.catalogue.length);
-
   if (state.catalogue.length === 0) {
     root.innerHTML = '<pre class="screen-error">Catalogue empty. data/core/parts.json failed to load.</pre>';
     return;
@@ -62,10 +65,11 @@ export function mountBuilder(root) {
         <div class="builder-top-left">
           <strong>${template.name.toUpperCase()}</strong>
           <span id="budget-line">SIZE ${template.sizeClassMax} · ${template.activeSlots.length} SLOTS · ${state.catalogue.length} PARTS</span>
-        </div>
+         </div>
         <div class="builder-top-right">
           <button class="btn-secondary" id="btn-back">Change Family</button>
           <button class="btn-secondary" id="btn-save">Save Design</button>
+          <button class="btn-secondary" id="btn-fire">Test Fire</button>
           <button class="btn-primary" id="btn-confirm" disabled>Confirm Design</button>
         </div>
       </div>
@@ -101,7 +105,7 @@ export function mountBuilder(root) {
         </aside>
 
         <div class="builder-canvas-wrap" id="canvas-wrap">
-          <div class="builder-hint">DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A SLOT</div>
+          <div class="builder-hint" id="canvas-hint">DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A SLOT</div>
         </div>
 
         <aside class="builder-parts" id="parts-panel"></aside>
@@ -117,14 +121,18 @@ export function mountBuilder(root) {
   const panel = root.querySelector('#parts-panel');
   const three = createScene(wrap);
 
+  const supportGroup = new THREE.Group();
+  three.scene.add(supportGroup);
+
   let selectedSlot = null;
   let currentHitboxes = [];
+  let launchActive = false;
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
 
-  // ---- event delegation on parts panel ----
   panel.addEventListener('click', (evt) => {
+    if (launchActive) return;
     const option = evt.target.closest('.part-option');
     if (option) {
       const id = option.dataset.id;
@@ -146,8 +154,8 @@ export function mountBuilder(root) {
     }
   });
 
-  // ---- 3D click ----
   function handleClick(evt) {
+    if (launchActive) return;
     const rect = three.renderer.domElement.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
 
@@ -156,12 +164,7 @@ export function mountBuilder(root) {
     raycaster.setFromCamera(pointer, three.camera);
 
     const hits = raycaster.intersectObjects(currentHitboxes, false);
-
-    if (hits.length > 0) {
-      selectedSlot = hits[0].object.userData.slot;
-    } else {
-      selectedSlot = null;
-    }
+    selectedSlot = hits.length > 0 ? hits[0].object.userData.slot : null;
     renderPartsPanel();
     renderSlotList();
   }
@@ -180,7 +183,8 @@ export function mountBuilder(root) {
     handleClick(evt);
   });
 
-  // ---- builders ----
+  const SIZE_SCALE_MAP = { S: 0.65, M: 1.0, L: 1.45, XL: 2.0 };
+
   function rebuildRocket() {
     const { hitboxes, totalHeight } = buildRocket(three.rocketGroup, template, state.installed);
     currentHitboxes = hitboxes;
@@ -192,8 +196,17 @@ export function mountBuilder(root) {
     setFlex(flex);
     applyFlex(three.rocketGroup, flex);
 
+    // Clamp height = the oxidizer tank's Y center. Fall back to mid-height if no ox tank.
+    const stack = computeStackPositions(template);
+    const oxPos = stack.positions.oxidizer_tank;
+    const clampY = oxPos ? oxPos.center : totalHeight * 0.35;
+
+    const scale = SIZE_SCALE_MAP[template.sizeClassMax] || 1.0;
+    const rocketDiameter = 1.5 * scale;
+    buildSupportTower(supportGroup, template, clampY, rocketDiameter);
+
     three.controls.target.set(0, totalHeight / 2, 0);
-    three.camera.position.set(totalHeight * 0.7, totalHeight * 0.6, totalHeight * 1.1);
+    three.camera.position.set(totalHeight * 0.9, totalHeight * 0.7, totalHeight * 1.3);
     three.controls.update();
   }
 
@@ -211,10 +224,11 @@ export function mountBuilder(root) {
       const border = p ? 'var(--good)' : (isSelected ? 'var(--accent)' : 'var(--border)');
       const color = p ? 'var(--text)' : (isSelected ? 'var(--accent)' : 'var(--text-dim)');
       html += `
-        <button class="slot-btn" data-slot="${slot}" style="
+        <button class="slot-btn" data-slot="${slot}" ${launchActive ? 'disabled' : ''} style="
           background:${bg};border:1px solid ${border};color:${color};
           font-family:inherit;font-size:10px;letter-spacing:1px;
-          padding:6px 8px;text-align:left;cursor:pointer;
+          padding:6px 8px;text-align:left;cursor:${launchActive ? 'not-allowed' : 'pointer'};
+          opacity:${launchActive ? 0.6 : 1};
         ">${label}${p ? ' ✓' : ''}</button>
       `;
     }
@@ -222,6 +236,7 @@ export function mountBuilder(root) {
 
     el.querySelectorAll('.slot-btn').forEach(btn => {
       btn.addEventListener('click', () => {
+        if (launchActive) return;
         selectedSlot = btn.dataset.slot;
         renderPartsPanel();
         renderSlotList();
@@ -317,23 +332,36 @@ export function mountBuilder(root) {
     const msg = root.querySelector('#engineer-msg');
     msg.className = 'engineer-msg';
 
-    if (v.faults.length === 0) {
-      msg.classList.add('ok');
-      msg.textContent = 'Design review: no faults detected. Ready to confirm.';
-      root.querySelector('#btn-confirm').disabled = false;
+    const fq = computeFlightQuality(state.installed, template);
+
+    if (v.counts.block > 0 || v.counts.critical > 0 || fq.verdict.level === 'block') {
+      const order = { block: 0, critical: 1, caution: 2, info: 3 };
+      const sorted = [...v.faults].sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
+      const top = sorted[0];
+      if (top && (v.counts.block > 0 || v.counts.critical > 0)) {
+        msg.classList.add(top.severity);
+        msg.textContent = 'ENGINEER: ' + top.message + (top.fix ? ' — ' + top.fix : '');
+      } else {
+        msg.classList.add('block');
+        msg.textContent = 'ENGINEER: ' + fq.verdict.text;
+      }
+      root.querySelector('#btn-confirm').disabled = true;
       return;
     }
 
-    const order = { block: 0, critical: 1, caution: 2, info: 3 };
-    const sorted = [...v.faults].sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
-    const top = sorted[0];
-    msg.classList.add(top.severity);
-    msg.textContent = 'ENGINEER: ' + top.message + (top.fix ? ' — ' + top.fix : '');
-
-    root.querySelector('#btn-confirm').disabled = v.counts.block > 0 || v.counts.critical > 0;
+    if (fq.verdict.level === 'good') {
+      msg.classList.add('ok');
+      msg.textContent = 'ENGINEER: ' + fq.verdict.text + ' Thrust-to-weight ' + fq.twr.toFixed(2) + '.';
+    } else if (fq.verdict.level === 'caution') {
+      msg.classList.add('caution');
+      msg.textContent = 'ENGINEER: ' + fq.verdict.text;
+    } else {
+      msg.classList.add('critical');
+      msg.textContent = 'ENGINEER: ' + fq.verdict.text;
+    }
+    root.querySelector('#btn-confirm').disabled = false;
   }
 
-  // ---- the single entry point. No subscriptions. No recursion.
   function renderAll() {
     rebuildRocket();
     renderSlotList();
@@ -342,12 +370,64 @@ export function mountBuilder(root) {
     renderEngineer();
   }
 
-  // ---- buttons ----
+  function lockButtons(locked) {
+    ['btn-back', 'btn-save', 'btn-fire', 'btn-confirm'].forEach(id => {
+      const b = root.querySelector('#' + id);
+      if (b) b.disabled = locked;
+    });
+  }
+
+  root.querySelector('#btn-fire').addEventListener('click', () => {
+    if (launchActive) return;
+    launchActive = true;
+    lockButtons(true);
+    const hint = root.querySelector('#canvas-hint');
+    if (hint) hint.textContent = 'LAUNCH SEQUENCE ACTIVE';
+
+    playLaunchSequence({
+      rocketGroup: three.rocketGroup,
+      supportGroup,
+      scene: three.scene,
+      template,
+      installed: state.installed,
+      onPhase: (phase) => {
+        const el = root.querySelector('#engineer-msg');
+        if (!el) return;
+        el.className = 'engineer-msg info';
+        if (phase === 'clamps')  el.textContent = 'ENGINEER: Clamps retracting...';
+        if (phase === 'ascent')  el.textContent = 'ENGINEER: Vehicle ascending. Telemetry nominal.';
+        if (phase === 'hover')   el.textContent = 'ENGINEER: Hovering. Holding attitude.';
+        if (phase === 'descent') el.textContent = 'ENGINEER: Descending under thrust.';
+        if (phase === 'settle')  el.textContent = 'ENGINEER: Settling on the pad...';
+        if (phase === 'failing') el.textContent = 'ENGINEER: WARNING. Anomaly detected on the pad.';
+        if (phase === 'exploded') el.textContent = 'ENGINEER: VEHICLE LOST.';
+      },
+      onComplete: (success, info) => {
+        launchActive = false;
+        lockButtons(false);
+        const hint = root.querySelector('#canvas-hint');
+        if (hint) hint.textContent = 'DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A SLOT';
+
+        const el = root.querySelector('#engineer-msg');
+        if (el) {
+          el.className = 'engineer-msg ' + (success ? 'ok' : 'block');
+          el.textContent = 'ENGINEER: ' + (success
+            ? 'Clean flight. Vehicle returned to the pad. Design is flight-ready.'
+            : 'Flight failed. ' + info.reason + ' Adjust the design and try again.');
+        }
+
+        renderEngineer();
+      },
+    });
+  });
+
   root.querySelector('#btn-back').addEventListener('click', () => {
+    if (launchActive) return;
     window.dispatchEvent(new CustomEvent('navigate', { detail: 'rocketSelect' }));
   });
 
   root.querySelector('#btn-save').addEventListener('click', () => {
+    if (launchActive) return;
     const name = prompt('Name this design:');
     if (!name) return;
     const saved = JSON.parse(localStorage.getItem('savedRockets') || '{}');
@@ -361,18 +441,17 @@ export function mountBuilder(root) {
   });
 
   root.querySelector('#btn-confirm').addEventListener('click', () => {
+    if (launchActive) return;
     alert('Design confirmed. Trajectory planner coming next.');
   });
 
-  // ---- init ----
   renderAll();
 
-  // cleanup
   const observer = new MutationObserver(() => {
     if (!document.body.contains(wrap)) {
       three.dispose();
       observer.disconnect();
     }
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, transform: true, subtree: true });
 }
