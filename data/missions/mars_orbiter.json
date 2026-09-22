@@ -1,0 +1,16 @@
+{
+  "id": "mars_orbiter",
+  "name": "Mars Orbiter",
+  "destination": "Mars",
+  "site": "Mars orbit",
+  "objective": "Enter Mars orbit and map the surface for 30 sols",
+  "budget": 180000000,
+  "power_available": 500,
+  "window_months": 26,
+  "vehicle": {
+    "name": "Falcon Heavy",
+    "capacity": 16800,
+    "cost": 150000000,
+    "reliability": 0.97
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "moon_flyby",
+  "name": "Moon Flyby",
+  "destination": "Moon",
+  "site": "Lunar space",
+  "objective": "Pass within 100 km and return 20 images",
+  "budget": 80000000,
+  "power_available": 500,
+  "window_months": 1,
+  "vehicle": {
+    "name": "Falcon 9",
+    "capacity": 8000,
+    "cost": 65000000,
+    "reliability": 0.975
+  }
+}

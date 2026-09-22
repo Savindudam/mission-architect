@@ -3,9 +3,15 @@ import { mountRocketSelect } from './screens/rocketSelect.js';
 import { mountBuilder } from './screens/builder.js';
 import { mountTrajectory } from './screens/trajectory.js';
 
-async function loadJSON(path) {
+async function loadJSON(path, optional = false) {
   const res = await fetch(path);
-  if (!res.ok) throw new Error('Failed to load ' + path + ': ' + res.status);
+  if (!res.ok) {
+    if (optional) {
+      console.warn('[main] optional file missing:', path);
+      return null;
+    }
+    throw new Error('Failed to load ' + path + ': ' + res.status);
+  }
   return res.json();
 }
 
@@ -38,12 +44,12 @@ async function init() {
   const [partsData, templatesData, missionData] = await Promise.all([
     loadJSON('data/core/parts.json'),
     loadJSON('data/core/templates.json'),
-    loadJSON('data/missions/mars-jezero.json'),
+    loadJSON('data/missions/mars_orbiter.json', true),
   ]);
 
   setParts(partsData.parts);
   setTemplates(templatesData.templates);
-  setMission(missionData);
+  if (missionData) setMission(missionData);
 
   goTo('rocketSelect');
 }

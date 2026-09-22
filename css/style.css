@@ -166,3 +166,147 @@ input, textarea, .screen-error { -webkit-user-select: text; user-select: text; }
   #topbar { padding: 6px 12px; padding-top: calc(6px + env(safe-area-inset-top, 0px)); }
   .logo { font-size: 10px; }
 }
+
+/* ---------- TRAJECTORY — UPGRADED ---------- */
+
+.trajectory-mission-name {
+  font-size: 9px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  opacity: 0.7;
+}
+
+.trajectory-title {
+  font-size: 13px;
+  letter-spacing: 6px;
+  color: var(--accent);
+  font-weight: 700;
+  text-shadow: 0 0 12px rgba(34, 211, 238, 0.5);
+}
+
+.trajectory-subtitle {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+
+.trajectory-legend .dot-hazard { background: #facc15; }
+
+.tr-header {
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.08), rgba(34, 211, 238, 0.02));
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+
+.tr-header-label {
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.tr-header-value {
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.tr-section {
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tr-section:last-of-type {
+  border-bottom: none;
+}
+
+.tr-slider-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  letter-spacing: 1px;
+}
+
+.tr-slider-scale .tr-optimal {
+  color: var(--good);
+  font-weight: 700;
+}
+
+/* Margin gauge */
+.tr-margin-gauge {
+  margin-bottom: 14px;
+}
+
+.tr-margin-track {
+  position: relative;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.tr-margin-fill {
+  height: 100%;
+  width: 33%;
+  border-radius: 3px;
+  transition: width 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.tr-margin-center {
+  position: absolute;
+  left: 33.3%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.tr-margin-label {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-align: right;
+  transition: color 0.3s ease;
+}
+
+.tr-margin-label.good { color: var(--good); }
+.tr-margin-label.warn { color: var(--warn); }
+.tr-margin-label.bad  { color: var(--bad); }
+
+/* Prediction rows — slightly tighter */
+.tr-prediction {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 12px 14px;
+}
+
+.tr-row {
+  font-size: 11px;
+  padding: 6px 0;
+}
+
+/* Hazards */
+.tr-hazard-row {
+  padding: 8px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
+}
+
+.tr-hazard-row:last-child { border-bottom: none; }
+
+/* Action buttons at bottom */
+.tr-actions {
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(to top, var(--bg-2) 60%, rgba(18, 18, 26, 0.8) 100%);
+  padding-top: 20px;
+  margin-top: 10px;
+}

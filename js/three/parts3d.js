@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-// caching. don't touch.
+// Think twice before touching this one line could arise many problems
 const TEX_CACHE = {};
 const MATS = {};
 
