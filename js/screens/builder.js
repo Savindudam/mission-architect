@@ -143,7 +143,6 @@ export function mountBuilder(root) {
       renderAll();
       return;
     }
-
     const removeBtn = evt.target.closest('#btn-remove');
     if (removeBtn && selectedSlot) {
       const installedHere = state.installed.find(p => p.slot === selectedSlot);
@@ -158,11 +157,9 @@ export function mountBuilder(root) {
     if (launchActive) return;
     const rect = three.renderer.domElement.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
-
     pointer.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, three.camera);
-
     const hits = raycaster.intersectObjects(currentHitboxes, false);
     selectedSlot = hits.length > 0 ? hits[0].object.userData.slot : null;
     renderPartsPanel();
@@ -196,7 +193,6 @@ export function mountBuilder(root) {
     setFlex(flex);
     applyFlex(three.rocketGroup, flex);
 
-    // Clamp height = the oxidizer tank's Y center. Fall back to mid-height if no ox tank.
     const stack = computeStackPositions(template);
     const oxPos = stack.positions.oxidizer_tank;
     const clampY = oxPos ? oxPos.center : totalHeight * 0.35;
@@ -204,6 +200,9 @@ export function mountBuilder(root) {
     const scale = SIZE_SCALE_MAP[template.sizeClassMax] || 1.0;
     const rocketDiameter = 1.5 * scale;
     buildSupportTower(supportGroup, template, clampY, rocketDiameter);
+
+    three.enableShadows(three.rocketGroup);
+    three.enableShadows(supportGroup);
 
     three.controls.target.set(0, totalHeight / 2, 0);
     three.camera.position.set(totalHeight * 0.9, totalHeight * 0.7, totalHeight * 1.3);
@@ -214,7 +213,6 @@ export function mountBuilder(root) {
     const el = root.querySelector('#slot-list');
     if (!el) return;
     const installed = new Map(state.installed.map(p => [p.slot, p]));
-
     let html = '';
     for (const slot of template.activeSlots) {
       const p = installed.get(slot);
@@ -233,7 +231,6 @@ export function mountBuilder(root) {
       `;
     }
     el.innerHTML = html;
-
     el.querySelectorAll('.slot-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         if (launchActive) return;
@@ -252,11 +249,9 @@ export function mountBuilder(root) {
       `;
       return;
     }
-
     const label = SLOT_LABELS[selectedSlot] || selectedSlot;
     const hint = SLOT_HINTS[selectedSlot] || '';
     const installedHere = state.installed.find(p => p.slot === selectedSlot);
-
     const sizeOrder = { S: 0, M: 1, L: 2, XL: 3 };
     const maxSize = sizeOrder[template.sizeClassMax] ?? 3;
     const allForSlot = state.catalogue.filter(p => p.slot === selectedSlot);
@@ -328,10 +323,8 @@ export function mountBuilder(root) {
   function renderEngineer() {
     const v = validate(state.installed, template, state.catalogue);
     setValidation(v);
-
     const msg = root.querySelector('#engineer-msg');
     msg.className = 'engineer-msg';
-
     const fq = computeFlightQuality(state.installed, template);
 
     if (v.counts.block > 0 || v.counts.critical > 0 || fq.verdict.level === 'block') {
@@ -401,6 +394,9 @@ export function mountBuilder(root) {
         if (phase === 'settle')  el.textContent = 'ENGINEER: Settling on the pad...';
         if (phase === 'failing') el.textContent = 'ENGINEER: WARNING. Anomaly detected on the pad.';
         if (phase === 'exploded') el.textContent = 'ENGINEER: VEHICLE LOST.';
+        if (phase === 'touchdown') el.textContent = 'ENGINEER: Touchdown. Cutting thrust.';
+        if (phase === 'landed') el.textContent = 'ENGINEER: Vehicle on the pad.';
+        if (phase === 'recovering') el.textContent = 'ENGINEER: Re-engaging clamps...';
       },
       onComplete: (success, info) => {
         launchActive = false;
@@ -415,7 +411,6 @@ export function mountBuilder(root) {
             ? 'Clean flight. Vehicle returned to the pad. Design is flight-ready.'
             : 'Flight failed. ' + info.reason + ' Adjust the design and try again.');
         }
-
         renderEngineer();
       },
     });
@@ -440,11 +435,10 @@ export function mountBuilder(root) {
     alert('Saved as "' + name + '"');
   });
 
-  root.querySelector('#btn-confirm').addEventListener('click', () => {
+ root.querySelector('#btn-confirm').addEventListener('click', () => {
     if (launchActive) return;
-    alert('Design confirmed. Trajectory planner coming next.');
+    window.dispatchEvent(new CustomEvent('navigate', { detail: 'trajectory' }));
   });
-
   renderAll();
 
   const observer = new MutationObserver(() => {
@@ -453,5 +447,5 @@ export function mountBuilder(root) {
       observer.disconnect();
     }
   });
-  observer.observe(document.body, { childList: true, transform: true, subtree: true });
+  observer.observe(document.body, { childList: true, subtree: true });
 }
