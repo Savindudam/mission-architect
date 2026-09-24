@@ -1,13 +1,21 @@
-import { state, installPart, removePart, setValidation, setFlex, totals } from '../engine/state.js';
+import {
+  state, installPart, removePart, setValidation, setFlex, totals,
+  markMissionComplete,
+} from '../engine/state.js';
+import {
+  checkMission, computeDesignPerformance, scoreFlight,
+} from '../engine/mission_check.js';
 import { validate } from '../engine/validate.js';
 import { computeFlex } from '../engine/flex.js';
 import { createScene } from '../three/scene.js';
 import {
   buildRocket, applyFlex,
   buildSupportTower, resetClamps,
-  playLaunchSequence, hideAllFlames, computeFlightQuality,
-  computeStackPositions,
+  playLaunchSequence, hideAllFlames,
+  computeFlightQuality, computeStackPositions,
 } from '../three/rocket.js';
+import { loadQuality } from '../three/quality.js';
+import { showQualityModal } from './qualityModal.js';
 import * as THREE from 'three';
 
 const SLOT_LABELS = {
@@ -46,18 +54,89 @@ const SLOT_HINTS = {
   nose_cone:        'Aerodynamic cover.',
 };
 
+const SIZE_SCALE_MAP = { S: 0.65, M: 1.0, L: 1.45, XL: 2.0 };
+const SIZE_ORDER = { S: 0, M: 1, L: 2, XL: 3 };
+
+// =========================================================
+// STRUCTURAL SUPPORT
+// A slot only holds load if every slot below it is filled AND
+// supported. Side-attach parts (grid fins, power) hang off the
+// stack without participating in the load path.
+// =========================================================
+
+const STACK_ORDER = [
+  'engine_cluster', 'thrust_structure', 'oxidizer_tank', 'fuel_tank',
+  'intertank', 'pressurant', 'grid_fins', 'interstage', 'separation',
+  'upper_engine', 'upper_tank', 'avionics', 'power', 'payload', 'nose_cone',
+];
+
+const SIDE_ATTACH = new Set(['grid_fins', 'power']);
+
+function computeStackSupport(template, installed) {
+  const bySlot = {};
+  for (const p of installed) bySlot[p.slot] = p;
+
+  const status = {};
+  let chainIntact = true; // the pad always supports the bottom
+
+  for (const slot of STACK_ORDER) {
+    if (!template.activeSlots.includes(slot)) continue;
+
+    const hasPart = !!bySlot[slot];
+    const isSideAttach = SIDE_ATTACH.has(slot);
+
+    if (isSideAttach) {
+      // side-attached: it only needs the chain to be intact around
+      // its mounting point. It does not change the chain itself.
+      status[slot] = { hasPart, isSupported: chainIntact && hasPart };
+      continue;
+    }
+
+    const isSupported = chainIntact && hasPart;
+    status[slot] = { hasPart, isSupported };
+    chainIntact = isSupported;
+  }
+
+  const orphans = STACK_ORDER.filter(
+    s => status[s] && status[s].hasPart && !status[s].isSupported
+  );
+
+  return { status, orphans, firstOrphan: orphans[0] || null };
+}
+
+function hashCode(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+// =========================================================
+// BUILDER
+// =========================================================
+
 export function mountBuilder(root) {
   if (!state.template) {
     root.innerHTML = '<pre class="screen-error">No template selected.</pre>';
     return;
   }
 
-  const template = state.template;
-
   if (state.catalogue.length === 0) {
     root.innerHTML = '<pre class="screen-error">Catalogue empty. data/core/parts.json failed to load.</pre>';
     return;
   }
+
+  const savedQuality = loadQuality();
+  if (!savedQuality) {
+    root.innerHTML = '';
+    showQualityModal(root, 'medium', () => {
+      mountBuilder(root);
+    });
+    return;
+  }
+
+  const template = state.template;
 
   root.innerHTML = `
     <div class="builder">
@@ -65,14 +144,26 @@ export function mountBuilder(root) {
         <div class="builder-top-left">
           <strong>${template.name.toUpperCase()}</strong>
           <span id="budget-line">SIZE ${template.sizeClassMax} · ${template.activeSlots.length} SLOTS · ${state.catalogue.length} PARTS</span>
-         </div>
+        </div>
         <div class="builder-top-right">
-          <button class="btn-secondary" id="btn-back">Change Family</button>
+          <button class="btn-secondary" id="btn-back">Change Mission</button>
+          <button class="btn-secondary" id="btn-graphics">Graphics</button>
           <button class="btn-secondary" id="btn-save">Save Design</button>
           <button class="btn-secondary" id="btn-fire">Test Fire</button>
-          <button class="btn-primary" id="btn-confirm" disabled>Confirm Design</button>
+          <button class="btn-primary" id="btn-confirm" disabled>Launch Mission</button>
         </div>
       </div>
+
+      ${state.mission ? `
+      <div class="mission-hud" id="mission-hud">
+        <div class="mission-hud-header">
+          <span class="mission-hud-kicker">ACTIVE MISSION</span>
+          <span class="mission-hud-name">${state.mission.name.toUpperCase()}</span>
+          <span class="mission-hud-target">${state.mission.target}</span>
+        </div>
+        <div class="mission-hud-checks" id="mission-checks"></div>
+      </div>
+      ` : ''}
 
       <div class="builder-main">
         <aside class="builder-meters">
@@ -119,7 +210,7 @@ export function mountBuilder(root) {
 
   const wrap = root.querySelector('#canvas-wrap');
   const panel = root.querySelector('#parts-panel');
-  const three = createScene(wrap);
+  const three = createScene(wrap, savedQuality);
 
   const supportGroup = new THREE.Group();
   three.scene.add(supportGroup);
@@ -131,8 +222,11 @@ export function mountBuilder(root) {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
 
+  // ---- parts panel — event delegation ----
+
   panel.addEventListener('click', (evt) => {
     if (launchActive) return;
+
     const option = evt.target.closest('.part-option');
     if (option) {
       const id = option.dataset.id;
@@ -143,6 +237,7 @@ export function mountBuilder(root) {
       renderAll();
       return;
     }
+
     const removeBtn = evt.target.closest('#btn-remove');
     if (removeBtn && selectedSlot) {
       const installedHere = state.installed.find(p => p.slot === selectedSlot);
@@ -153,13 +248,17 @@ export function mountBuilder(root) {
     }
   });
 
+  // ---- 3D view click handling ----
+
   function handleClick(evt) {
     if (launchActive) return;
     const rect = three.renderer.domElement.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
+
     pointer.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, three.camera);
+
     const hits = raycaster.intersectObjects(currentHitboxes, false);
     selectedSlot = hits.length > 0 ? hits[0].object.userData.slot : null;
     renderPartsPanel();
@@ -180,19 +279,80 @@ export function mountBuilder(root) {
     handleClick(evt);
   });
 
-  const SIZE_SCALE_MAP = { S: 0.65, M: 1.0, L: 1.45, XL: 2.0 };
+  // ---- orphan drop ----
+  // Detaches any unsupported segment from the stack and lays it on
+  // the ground beside the pad. Deterministic per-slot so the layout
+  // is stable across re-renders.
+
+  function dropOrphans(support) {
+    const segments = three.rocketGroup.userData.segments || [];
+    if (segments.length === 0) return;
+
+    const orphanSet = new Set(support.orphans);
+    const toDrop = [];
+
+    three.rocketGroup.updateMatrixWorld(true);
+
+    for (const seg of segments) {
+      const slot = seg.userData.slot;
+      if (!orphanSet.has(slot)) continue;
+      const wp = new THREE.Vector3();
+      seg.getWorldPosition(wp);
+      toDrop.push({ seg, wp, slot });
+    }
+
+    if (toDrop.length === 0) return;
+
+    toDrop.forEach(({ seg, wp, slot }, i) => {
+      if (seg.parent) seg.parent.remove(seg);
+      three.rocketGroup.add(seg);
+
+      seg.position.copy(wp);
+      seg.rotation.set(0, 0, 0);
+
+      const seed = hashCode(slot);
+      const angle = ((seed % 628) / 100);
+      const dir = (seed >> 8) % 2 === 0 ? 1 : -1;
+      const roll = 1.25 + ((seed >> 16) % 40) / 100;
+
+      const dist = 2.2 + i * 0.9;
+      const h = seg.userData.height || 1;
+      const d = seg.userData.diameter || 1;
+
+      seg.position.x = wp.x + Math.cos(angle) * dist;
+      seg.position.z = wp.z + Math.sin(angle) * dist;
+      seg.position.y = d * 0.5;
+
+      seg.rotation.y = angle;
+      seg.rotation.z = dir * roll;
+      seg.rotation.x = ((seed >> 24) % 20 - 10) / 100;
+    });
+  }
+
+  // ---- rebuild rocket ----
 
   function rebuildRocket() {
-    const { hitboxes, totalHeight } = buildRocket(three.rocketGroup, template, state.installed);
+    const { hitboxes, totalHeight } = buildRocket(
+      three.rocketGroup, template, state.installed
+    );
     currentHitboxes = hitboxes;
 
+    // 1. flex on the intact chain
     const flex = computeFlex(state.installed.map(p => ({
-      id: p.id, name: p.name, mass_kg: p.mass_kg,
-      dimensions: p.dimensions, stiffness: p.stiffness,
+      id: p.id,
+      name: p.name,
+      mass_kg: p.mass_kg,
+      dimensions: p.dimensions,
+      stiffness: p.stiffness,
     })));
     setFlex(flex);
     applyFlex(three.rocketGroup, flex);
 
+    // 2. support pass — drop anything floating
+    const support = computeStackSupport(template, state.installed);
+    dropOrphans(support);
+
+    // 3. camera + tower framing
     const stack = computeStackPositions(template);
     const oxPos = stack.positions.oxidizer_tank;
     const clampY = oxPos ? oxPos.center : totalHeight * 0.35;
@@ -209,28 +369,56 @@ export function mountBuilder(root) {
     three.controls.update();
   }
 
+  // ---- slot list on the left ----
+
   function renderSlotList() {
     const el = root.querySelector('#slot-list');
     if (!el) return;
+
     const installed = new Map(state.installed.map(p => [p.slot, p]));
+    const support = computeStackSupport(template, state.installed);
+    const orphanSet = new Set(support.orphans);
     let html = '';
+
     for (const slot of template.activeSlots) {
       const p = installed.get(slot);
       const label = SLOT_LABELS[slot] || slot;
       const isSelected = selectedSlot === slot;
-      const bg = p ? 'rgba(74,222,128,0.12)' : (isSelected ? 'rgba(34,211,238,0.15)' : 'var(--bg-3)');
-      const border = p ? 'var(--good)' : (isSelected ? 'var(--accent)' : 'var(--border)');
-      const color = p ? 'var(--text)' : (isSelected ? 'var(--accent)' : 'var(--text-dim)');
+      const isOrphan = p && orphanSet.has(slot);
+
+      let bg, border, color;
+      if (isOrphan) {
+        bg = 'rgba(239,68,68,0.14)';
+        border = 'var(--bad)';
+        color = 'var(--bad)';
+      } else if (p) {
+        bg = 'rgba(74,222,128,0.12)';
+        border = 'var(--good)';
+        color = 'var(--text)';
+      } else if (isSelected) {
+        bg = 'rgba(34,211,238,0.15)';
+        border = 'var(--accent)';
+        color = 'var(--accent)';
+      } else {
+        bg = 'var(--bg-3)';
+        border = 'var(--border)';
+        color = 'var(--text-dim)';
+      }
+
+      const mark = isOrphan ? ' ⚠' : (p ? ' ✓' : '');
+
       html += `
         <button class="slot-btn" data-slot="${slot}" ${launchActive ? 'disabled' : ''} style="
           background:${bg};border:1px solid ${border};color:${color};
           font-family:inherit;font-size:10px;letter-spacing:1px;
           padding:6px 8px;text-align:left;cursor:${launchActive ? 'not-allowed' : 'pointer'};
           opacity:${launchActive ? 0.6 : 1};
-        ">${label}${p ? ' ✓' : ''}</button>
+        ">${label}${mark}</button>
       `;
     }
+
     el.innerHTML = html;
+
     el.querySelectorAll('.slot-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         if (launchActive) return;
@@ -241,6 +429,8 @@ export function mountBuilder(root) {
     });
   }
 
+  // ---- parts panel on the right ----
+
   function renderPartsPanel() {
     if (!selectedSlot) {
       panel.innerHTML = `
@@ -249,18 +439,20 @@ export function mountBuilder(root) {
       `;
       return;
     }
+
     const label = SLOT_LABELS[selectedSlot] || selectedSlot;
     const hint = SLOT_HINTS[selectedSlot] || '';
     const installedHere = state.installed.find(p => p.slot === selectedSlot);
-    const sizeOrder = { S: 0, M: 1, L: 2, XL: 3 };
-    const maxSize = sizeOrder[template.sizeClassMax] ?? 3;
+    const maxSize = SIZE_ORDER[template.sizeClassMax] ?? 3;
+
     const allForSlot = state.catalogue.filter(p => p.slot === selectedSlot);
-    const fitting = allForSlot.filter(p => (sizeOrder[p.size_class] ?? 0) <= maxSize);
+    const fitting = allForSlot.filter(p => (SIZE_ORDER[p.size_class] ?? 0) <= maxSize);
 
     let optionsHtml = '';
     for (const p of allForSlot) {
-      const tooBig = (sizeOrder[p.size_class] ?? 0) > maxSize;
+      const tooBig = (SIZE_ORDER[p.size_class] ?? 0) > maxSize;
       const isInstalled = installedHere && installedHere.id === p.id;
+
       optionsHtml += `
         <div class="part-option ${tooBig ? 'too-big' : ''} ${isInstalled ? 'installed' : ''}" data-id="${p.id}">
           <div class="po-name">${p.name}${isInstalled ? ' — INSTALLED' : ''}</div>
@@ -291,11 +483,15 @@ export function mountBuilder(root) {
     `;
   }
 
-  function renderMeters() {
-    const t = totals();
-    const budget = state.mission?.budget || 500000000;
+  // ---- meters ----
 
-    const massCap = 40000;
+  function renderMeters() {
+    if (!root.querySelector('#m-mass')) return;
+
+    const t = totals();
+    const budget = state.mission?.requirements?.maxCost_usd || 500000000;
+
+    const massCap = state.mission?.requirements?.maxMass_kg || 40000;
     root.querySelector('#m-mass').style.width = Math.min(100, (t.mass / massCap) * 100) + '%';
     root.querySelector('#v-mass').textContent = t.mass.toLocaleString() + ' kg';
 
@@ -320,11 +516,30 @@ export function mountBuilder(root) {
     root.querySelector('#v-flex').textContent = (flexRatio * 100).toFixed(0) + '%';
   }
 
+  // ---- engineer message ----
+
   function renderEngineer() {
+    const msg = root.querySelector('#engineer-msg');
+    if (!msg) return;
+
+    // 1. Structural support fault takes priority. A floating stack
+    //    is the loudest possible problem.
+    const support = computeStackSupport(template, state.installed);
+    if (support.firstOrphan) {
+      const label = (SLOT_LABELS[support.firstOrphan] || support.firstOrphan).toLowerCase();
+      const count = support.orphans.length;
+      msg.className = 'engineer-msg block';
+      msg.textContent = count === 1
+        ? `ENGINEER: No support under the ${label}. It has fallen off the stack.`
+        : `ENGINEER: ${count} sections have no support and have fallen off the stack. Lowest is the ${label}.`;
+      return;
+    }
+
     const v = validate(state.installed, template, state.catalogue);
     setValidation(v);
-    const msg = root.querySelector('#engineer-msg');
+
     msg.className = 'engineer-msg';
+
     const fq = computeFlightQuality(state.installed, template);
 
     if (v.counts.block > 0 || v.counts.critical > 0 || fq.verdict.level === 'block') {
@@ -338,7 +553,6 @@ export function mountBuilder(root) {
         msg.classList.add('block');
         msg.textContent = 'ENGINEER: ' + fq.verdict.text;
       }
-      root.querySelector('#btn-confirm').disabled = true;
       return;
     }
 
@@ -352,8 +566,39 @@ export function mountBuilder(root) {
       msg.classList.add('critical');
       msg.textContent = 'ENGINEER: ' + fq.verdict.text;
     }
-    root.querySelector('#btn-confirm').disabled = false;
   }
+
+  // ---- mission requirements panel ----
+
+  function renderMissionPanel() {
+    if (!state.mission) return;
+
+    const checksEl = root.querySelector('#mission-checks');
+    if (!checksEl) return;
+
+    const perf = computeDesignPerformance();
+    const result = checkMission(state.mission, perf);
+
+    checksEl.innerHTML = result.checks.map(c => `
+      <div class="mission-check ${c.pass ? 'pass' : 'fail'}">
+        <span class="mission-check-label">${c.label}</span>
+        <span class="mission-check-need">${c.need}</span>
+        <span class="mission-check-have">${c.have}</span>
+        <span class="mission-check-mark">${c.pass ? 'PASS' : 'FAIL'}</span>
+      </div>
+    `).join('');
+
+    const launchBtn = root.querySelector('#btn-confirm');
+    if (launchBtn && !launchActive) {
+      const v = validate(state.installed, template, state.catalogue);
+      const support = computeStackSupport(template, state.installed);
+      const structuralBlock = support.orphans.length > 0;
+      const designBlock = v.counts.block > 0 || v.counts.critical > 0;
+      launchBtn.disabled = structuralBlock || designBlock || !result.allPass;
+    }
+  }
+
+  // ---- one entry point for every redraw ----
 
   function renderAll() {
     rebuildRocket();
@@ -361,64 +606,28 @@ export function mountBuilder(root) {
     renderPartsPanel();
     renderMeters();
     renderEngineer();
+    renderMissionPanel();
   }
 
   function lockButtons(locked) {
-    ['btn-back', 'btn-save', 'btn-fire', 'btn-confirm'].forEach(id => {
+    ['btn-back', 'btn-graphics', 'btn-save', 'btn-fire', 'btn-confirm'].forEach(id => {
       const b = root.querySelector('#' + id);
       if (b) b.disabled = locked;
     });
   }
 
-  root.querySelector('#btn-fire').addEventListener('click', () => {
-    if (launchActive) return;
-    launchActive = true;
-    lockButtons(true);
-    const hint = root.querySelector('#canvas-hint');
-    if (hint) hint.textContent = 'LAUNCH SEQUENCE ACTIVE';
-
-    playLaunchSequence({
-      rocketGroup: three.rocketGroup,
-      supportGroup,
-      scene: three.scene,
-      template,
-      installed: state.installed,
-      onPhase: (phase) => {
-        const el = root.querySelector('#engineer-msg');
-        if (!el) return;
-        el.className = 'engineer-msg info';
-        if (phase === 'clamps')  el.textContent = 'ENGINEER: Clamps retracting...';
-        if (phase === 'ascent')  el.textContent = 'ENGINEER: Vehicle ascending. Telemetry nominal.';
-        if (phase === 'hover')   el.textContent = 'ENGINEER: Hovering. Holding attitude.';
-        if (phase === 'descent') el.textContent = 'ENGINEER: Descending under thrust.';
-        if (phase === 'settle')  el.textContent = 'ENGINEER: Settling on the pad...';
-        if (phase === 'failing') el.textContent = 'ENGINEER: WARNING. Anomaly detected on the pad.';
-        if (phase === 'exploded') el.textContent = 'ENGINEER: VEHICLE LOST.';
-        if (phase === 'touchdown') el.textContent = 'ENGINEER: Touchdown. Cutting thrust.';
-        if (phase === 'landed') el.textContent = 'ENGINEER: Vehicle on the pad.';
-        if (phase === 'recovering') el.textContent = 'ENGINEER: Re-engaging clamps...';
-      },
-      onComplete: (success, info) => {
-        launchActive = false;
-        lockButtons(false);
-        const hint = root.querySelector('#canvas-hint');
-        if (hint) hint.textContent = 'DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A SLOT';
-
-        const el = root.querySelector('#engineer-msg');
-        if (el) {
-          el.className = 'engineer-msg ' + (success ? 'ok' : 'block');
-          el.textContent = 'ENGINEER: ' + (success
-            ? 'Clean flight. Vehicle returned to the pad. Design is flight-ready.'
-            : 'Flight failed. ' + info.reason + ' Adjust the design and try again.');
-        }
-        renderEngineer();
-      },
-    });
-  });
+  // ---- top bar buttons ----
 
   root.querySelector('#btn-back').addEventListener('click', () => {
     if (launchActive) return;
-    window.dispatchEvent(new CustomEvent('navigate', { detail: 'rocketSelect' }));
+    window.dispatchEvent(new CustomEvent('navigate', { detail: 'missions' }));
+  });
+
+  root.querySelector('#btn-graphics').addEventListener('click', () => {
+    if (launchActive) return;
+    showQualityModal(root, savedQuality, () => {
+      window.dispatchEvent(new CustomEvent('navigate', { detail: 'builder' }));
+    });
   });
 
   root.querySelector('#btn-save').addEventListener('click', () => {
@@ -435,14 +644,119 @@ export function mountBuilder(root) {
     alert('Saved as "' + name + '"');
   });
 
-    root.querySelector('#btn-confirm').addEventListener('click', () => {
+  // ---- test fire — full launch sequence ----
+
+  root.querySelector('#btn-fire').addEventListener('click', () => {
     if (launchActive) return;
-    playEngineBurn(three.rocketGroup, 800);
-    setTimeout(() => {
-      alert('Design confirmed. That is the end of the flow for now.');
-    }, 900);
+
+    // Refuse to ignite a broken stack. The engineer line explains why.
+    const support = computeStackSupport(template, state.installed);
+    if (support.orphans.length > 0) {
+      const el = root.querySelector('#engineer-msg');
+      if (el) {
+        el.className = 'engineer-msg block';
+        el.textContent = 'ENGINEER: Cannot test fire. Parts have fallen off the stack.';
+      }
+      return;
+    }
+
+    launchActive = true;
+    lockButtons(true);
+
+    const hint = root.querySelector('#canvas-hint');
+    if (hint) hint.textContent = 'LAUNCH SEQUENCE ACTIVE';
+
+    playLaunchSequence({
+      rocketGroup: three.rocketGroup,
+      supportGroup,
+      scene: three.scene,
+      camera: three.camera,
+      controls: three.controls,
+      template,
+      installed: state.installed,
+      onPhase: (phase) => {
+        const el = root.querySelector('#engineer-msg');
+        if (!el) return;
+        el.className = 'engineer-msg info';
+
+        if (phase === 'clamps')     el.textContent = 'ENGINEER: Clamps retracting...';
+        if (phase === 'silent')     el.textContent = 'ENGINEER: No ignition. Vehicle is inert.';
+        if (phase === 'sputtering') el.textContent = 'ENGINEER: Engine sputtering. No propellant feed.';
+        if (phase === 'ignition')   el.textContent = 'ENGINEER: Ignition. Watching structural loads.';
+        if (phase === 'straining')  el.textContent = 'ENGINEER: Vehicle straining. Thrust below weight.';
+        if (phase === 'ascent')     el.textContent = 'ENGINEER: Vehicle ascending. Telemetry nominal.';
+        if (phase === 'hover')      el.textContent = 'ENGINEER: Hovering. Holding attitude.';
+        if (phase === 'descent')    el.textContent = 'ENGINEER: Descending under thrust.';
+        if (phase === 'touchdown')  el.textContent = 'ENGINEER: Touchdown. Cutting thrust.';
+        if (phase === 'landed')     el.textContent = 'ENGINEER: Vehicle on the pad.';
+        if (phase === 'recovering') el.textContent = 'ENGINEER: Re-engaging clamps...';
+        if (phase === 'collapsed')  el.textContent = 'ENGINEER: Structural collapse. Vehicle is lost.';
+        if (phase === 'exploded')   el.textContent = 'ENGINEER: VEHICLE LOST.';
+      },
+      onComplete: (success, info) => {
+        launchActive = false;
+        lockButtons(false);
+
+        const hint = root.querySelector('#canvas-hint');
+        if (hint) hint.textContent = 'DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A SLOT';
+
+        let score = 0;
+        let missionPassed = false;
+        let checkResult = null;
+
+        if (state.mission) {
+          const perf = computeDesignPerformance();
+          checkResult = checkMission(state.mission, perf);
+          if (success && checkResult.allPass) {
+            score = scoreFlight(state.mission, perf, true);
+            missionPassed = true;
+            markMissionComplete(state.mission.id);
+          }
+        }
+
+        const el = root.querySelector('#engineer-msg');
+        if (el) {
+          el.className = 'engineer-msg ' + (missionPassed ? 'ok' : 'block');
+          if (missionPassed) {
+            el.textContent = `MISSION COMPLETE · ${state.mission.name} · score ${score} / 100`;
+          } else if (!success) {
+            el.textContent = 'ENGINEER: Flight failed. ' + info.reason;
+          } else if (checkResult && !checkResult.allPass) {
+            const failed = checkResult.checks.filter(c => !c.pass).map(c => c.label).join(', ');
+            el.textContent = 'ENGINEER: Flight succeeded but the design misses the mission requirements: ' + failed + '.';
+          } else {
+            el.textContent = 'ENGINEER: Clean flight.';
+          }
+        }
+
+        renderEngineer();
+        renderMissionPanel();
+
+        if (missionPassed) {
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('navigate', { detail: 'flight' }));
+          }, 2200);
+        }
+      },
+    });
   });
+
+  // ---- launch mission — same sequence, gated by the mission check ----
+
+  root.querySelector('#btn-confirm').addEventListener('click', () => {
+    if (launchActive) return;
+    if (!state.mission) {
+      alert('No mission selected.');
+      return;
+    }
+    root.querySelector('#btn-fire').click();
+  });
+
+  // ---- first render ----
+
   renderAll();
+
+  // ---- clean up when the screen unmounts ----
 
   const observer = new MutationObserver(() => {
     if (!document.body.contains(wrap)) {

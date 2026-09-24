@@ -1,4 +1,6 @@
 import { setParts, setTemplates } from './engine/state.js';
+import { mountMissions } from './screens/missions.js';
+import { mountFlight } from './screens/flight.js';
 import { mountRocketSelect } from './screens/rocketSelect.js';
 import { mountBuilder } from './screens/builder.js';
 
@@ -9,8 +11,10 @@ async function loadJSON(path) {
 }
 
 const screens = {
+  missions: mountMissions,
   rocketSelect: mountRocketSelect,
   builder: mountBuilder,
+  flight: mountFlight,
 };
 
 function goTo(name) {
@@ -40,7 +44,7 @@ async function init() {
   setParts(partsData.parts);
   setTemplates(templatesData.templates);
 
-  goTo('rocketSelect');
+  goTo('missions');
 }
 
 init().catch(err => {

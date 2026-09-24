@@ -752,7 +752,8 @@ function makePipeRun(length, radius, x, z, rotY, height, color) {
 // MOUNTAINS
 // ============================================================
 
-function makeMountains() {
+function makeMountains(rangeCount) {
+  const count = rangeCount || 3;
   const g = new THREE.Group();
 
   const nearMat = new THREE.MeshStandardMaterial({
@@ -767,11 +768,14 @@ function makeMountains() {
     metalness: 0.0,
   });
 
-  const ranges = [
+  const allRanges = [
     { radius: 380, count: 70, baseH: 22, mat: nearMat, w: 40 },
     { radius: 520, count: 50, baseH: 34, mat: farMat,  w: 55 },
     { radius: 680, count: 35, baseH: 48, mat: farMat,  w: 70 },
+    { radius: 840, count: 25, baseH: 60, mat: farMat,  w: 85 },
   ];
+
+  const ranges = allRanges.slice(0, Math.min(count, allRanges.length));
 
   for (const r of ranges) {
     for (let i = 0; i < r.count; i++) {
@@ -799,8 +803,10 @@ function makeMountains() {
 // Blocks with lit windows along one side of the horizon.
 // ============================================================
 
-function makeDistantCity() {
+function makeDistantCity(buildingCount) {
+  const count = buildingCount || 60;
   const g = new THREE.Group();
+
 
   const blockMat = new THREE.MeshStandardMaterial({
     color: 0x12121c,
@@ -814,7 +820,6 @@ function makeDistantCity() {
     opacity: 0.85,
   });
 
-  const count = 60;
   const arcStart = -Math.PI * 0.35;
   const arcEnd = Math.PI * 0.15;
   const radius = 240;
@@ -855,8 +860,8 @@ function makeDistantCity() {
 // Small drifting motes in the air near the pad.
 // ============================================================
 
-function makeDustField() {
-  const count = 400;
+function makeDustField(countArg) {
+  const count = countArg || 300;
   const geo = new THREE.BufferGeometry();
   const positions = new Float32Array(count * 3);
   const speeds = new Float32Array(count);
@@ -1082,7 +1087,15 @@ function makeHangar(x, z, w, h, d) {
 // PUBLIC API
 // ============================================================
 
-export function createEnvironment(scene) {
+export function createEnvironment(scene, preset) {
+  const q = preset || {
+    dustCount: 300,
+    mountainRanges: 3,
+    cityBuildings: 60,
+    cableTrays: 3,
+    pipeRuns: 3,
+  };
+
   const group = new THREE.Group();
   scene.add(group);
 
@@ -1091,19 +1104,29 @@ export function createEnvironment(scene) {
 
   group.add(makeSunShaft());
   group.add(makeGround());
-  group.add(makeMountains());
-  group.add(makeDistantCity());
+  group.add(makeMountains(q.mountainRanges));
+  group.add(makeDistantCity(q.cityBuildings));
   group.add(makePad());
 
-  // cable trays running along the pad
-  group.add(makeCableTray(84, 0, -38, 0, 0.8));
-  group.add(makeCableTray(84, 0,  38, 0, 0.8));
-  group.add(makeCableTray(84, -44, 0, Math.PI / 2, 0.8));
+  // cable trays — only if the preset allows any
+  const trays = [
+    [84, 0, -38, 0, 0.8],
+    [84, 0,  38, 0, 0.8],
+    [84, -44, 0, Math.PI / 2, 0.8],
+  ];
+  for (let i = 0; i < Math.min(q.cableTrays, trays.length); i++) {
+    group.add(makeCableTray(...trays[i]));
+  }
 
   // pipe runs
-  group.add(makePipeRun(84, 0.35, 0, -42, 0, 0.7, 0xa0a0a8));
-  group.add(makePipeRun(84, 0.25, 0, 42, 0, 1.1, 0x9a5a44));
-  group.add(makePipeRun(84, 0.3, 44, 0, Math.PI / 2, 0.9, 0x8a8a94));
+  const pipes = [
+    [84, 0.35, 0, -42, 0, 0.7, 0xa0a0a8],
+    [84, 0.25, 0, 42, 0, 1.1, 0x9a5a44],
+    [84, 0.3, 44, 0, Math.PI / 2, 0.9, 0x8a8a94],
+  ];
+  for (let i = 0; i < Math.min(q.pipeRuns, pipes.length); i++) {
+    group.add(makePipeRun(...pipes[i]));
+  }
 
   const towers = [];
   for (let i = 0; i < 4; i++) {
@@ -1133,7 +1156,7 @@ export function createEnvironment(scene) {
   group.add(makeHangar(-70,  70, 35, 18, 26));
   group.add(makeHangar( 95,  40, 30, 15, 22));
 
-  const dust = makeDustField();
+  const dust = makeDustField(q.dustCount);
   group.add(dust);
 
   return { group, towers, floodlights, waterTower, sky, dust };

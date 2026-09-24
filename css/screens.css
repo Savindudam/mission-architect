@@ -3588,3 +3588,643 @@
   .event-card-lg { padding: 22px 20px; }
   .event-title-lg { font-size: 13px; letter-spacing: 3px; }
 }
+/* ==========================================================
+   QUALITY PICKER
+   ========================================================== */
+
+.quality-modal {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at 50% 40%, rgba(34,211,238,0.08), transparent 60%),
+              rgba(5,5,12,0.94);
+  backdrop-filter: blur(8px);
+  z-index: 2000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 24px;
+  overflow-y: auto;
+  animation: fade-in 0.3s ease;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.quality-panel {
+  max-width: 960px;
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  padding: 40px 44px;
+  box-shadow: 0 0 80px rgba(34,211,238,0.15);
+  animation: pop 0.35s ease;
+}
+
+@keyframes pop {
+  0%   { transform: scale(0.95); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.quality-kicker {
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+.quality-title {
+  font-size: 26px;
+  letter-spacing: 5px;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 12px;
+  text-shadow: 0 0 24px rgba(34,211,238,0.35);
+}
+
+.quality-sub {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.65;
+  letter-spacing: 0.5px;
+  margin-bottom: 32px;
+  max-width: 620px;
+}
+
+.quality-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.quality-card {
+  background: var(--bg-3);
+  border: 2px solid var(--border);
+  padding: 20px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quality-card:hover {
+  border-color: rgba(34,211,238,0.5);
+  background: rgba(34,211,238,0.05);
+  transform: translateY(-2px);
+}
+
+.quality-card.active {
+  border-color: var(--accent);
+  background: rgba(34,211,238,0.08);
+  box-shadow: 0 0 24px rgba(34,211,238,0.2);
+}
+
+.quality-name {
+  font-size: 16px;
+  letter-spacing: 3px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.quality-tagline {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--warn);
+  text-transform: uppercase;
+}
+
+.quality-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.55;
+  min-height: 56px;
+}
+
+.quality-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  margin-top: auto;
+}
+
+.quality-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.quality-stat-key {
+  color: var(--text-dim);
+}
+
+.quality-stat-val {
+  color: var(--text);
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@media (max-width: 900px) {
+  .quality-panel { padding: 24px 20px; }
+  .quality-title { font-size: 18px; letter-spacing: 3px; }
+  .quality-grid  { grid-template-columns: 1fr; }
+  .quality-desc  { min-height: 0; }
+}
+
+/* ==========================================================
+   MISSION SELECT
+   ========================================================== */
+
+.missions-screen {
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 24px;
+  background:
+    radial-gradient(circle at 25% 15%, rgba(34,211,238,0.06), transparent 55%),
+    radial-gradient(circle at 75% 85%, rgba(167,139,250,0.05), transparent 55%);
+}
+
+.missions-panel {
+  max-width: 1200px;
+  width: 100%;
+}
+
+.missions-kicker {
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+.missions-title {
+  font-size: 30px;
+  letter-spacing: 6px;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 12px;
+  text-shadow: 0 0 24px rgba(34,211,238,0.4);
+}
+
+.missions-sub {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.7;
+  letter-spacing: 0.5px;
+  margin-bottom: 36px;
+  max-width: 660px;
+}
+
+.missions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.mission-card {
+  background: var(--bg-2);
+  border: 2px solid var(--border);
+  padding: 22px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+}
+
+.mission-card:hover:not(.locked) {
+  border-color: var(--accent);
+  background: var(--bg-3);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(34,211,238,0.12);
+}
+
+.mission-card.locked {
+  opacity: 0.42;
+  cursor: not-allowed;
+  filter: grayscale(0.7);
+}
+
+.mission-card.completed {
+  border-color: var(--good);
+}
+
+.mission-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.mission-name {
+  font-size: 14px;
+  letter-spacing: 3px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.mission-difficulty {
+  font-size: 11px;
+  color: var(--warn);
+  letter-spacing: 2px;
+}
+
+.mission-tagline {
+  font-size: 12px;
+  color: var(--text);
+  font-style: italic;
+  letter-spacing: 0.5px;
+}
+
+.mission-target {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+
+.mission-brief {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  min-height: 54px;
+}
+
+.mission-requirements {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.mission-req {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.mission-req-key {
+  color: var(--text-dim);
+}
+
+.mission-req-val {
+  color: var(--text);
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.mission-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mission-badge {
+  font-size: 9px;
+  letter-spacing: 2px;
+  padding: 3px 8px;
+  border-radius: 2px;
+  font-weight: 700;
+}
+
+.badge-completed {
+  color: var(--good);
+  border: 1px solid var(--good);
+  background: rgba(74,222,128,0.1);
+}
+
+.badge-locked {
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+.badge-ready {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  background: rgba(34,211,238,0.1);
+}
+
+.mission-reward {
+  font-size: 11px;
+  color: var(--warn);
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-left: auto;
+}
+
+@media (max-width: 900px) {
+  .missions-panel { padding: 0; }
+  .missions-title { font-size: 20px; letter-spacing: 3px; }
+  .missions-grid  { grid-template-columns: 1fr; }
+}
+
+/* ==========================================================
+   MISSION HUD IN BUILDER
+   ========================================================== */
+
+.mission-hud {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 24px;
+  background: linear-gradient(90deg, rgba(34,211,238,0.06), rgba(34,211,238,0.02));
+  border-bottom: 1px solid rgba(34,211,238,0.22);
+}
+
+.mission-hud-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  flex-shrink: 0;
+}
+
+.mission-hud-kicker {
+  font-size: 8px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+}
+
+.mission-hud-name {
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.mission-hud-target {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+
+.mission-hud-checks {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  flex: 1;
+}
+
+.mission-check {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 2px 6px;
+  padding: 6px 10px;
+  background: rgba(0,0,0,0.2);
+  border-left: 2px solid var(--border);
+}
+
+.mission-check.pass {
+  border-left-color: var(--good);
+}
+
+.mission-check.fail {
+  border-left-color: var(--bad);
+}
+
+.mission-check-label {
+  font-size: 8px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  grid-column: 1 / 2;
+}
+
+.mission-check-mark {
+  font-size: 8px;
+  letter-spacing: 2px;
+  font-weight: 700;
+  grid-column: 2 / 3;
+  text-align: right;
+}
+
+.mission-check.pass .mission-check-mark { color: var(--good); }
+.mission-check.fail .mission-check-mark { color: var(--bad); }
+
+.mission-check-need {
+  font-size: 9px;
+  color: var(--text-dim);
+  grid-column: 1 / 2;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.mission-check-have {
+  font-size: 10px;
+  color: var(--text);
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  grid-column: 2 / 3;
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .mission-hud {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .mission-hud-checks {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+/* ==========================================================
+   FLIGHT / CRUISE PHASE
+   ========================================================== */
+
+.flight-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #04040a;
+  min-height: 0;
+}
+
+.flight-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.flight-kicker {
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+
+.flight-title {
+  font-size: 15px;
+  letter-spacing: 4px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.flight-sol { display: flex; align-items: baseline; gap: 10px; }
+.flight-sol-key { font-size: 10px; letter-spacing: 3px; color: var(--text-dim); }
+.flight-sol-value { font-size: 16px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+
+.flight-progress-bar {
+  position: relative;
+  height: 22px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border);
+}
+
+.flight-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #22d3ee, #4ade80);
+  box-shadow: 0 0 12px rgba(34,211,238,0.4);
+  transition: width 0.15s linear;
+}
+
+.flight-progress-labels {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--text);
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+}
+
+.flight-resources {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  padding: 12px 24px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.flight-resource-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.flight-resource-val { color: var(--text); font-weight: 700; }
+
+.flight-resource-bar {
+  height: 6px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.flight-resource-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.2s linear;
+}
+
+.flight-resource.critical .flight-resource-fill {
+  animation: pulse-red 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.flight-canvas-wrap {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+
+#flight-canvas { display: block; width: 100%; height: 100%; }
+
+.flight-controls {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  display: flex;
+  gap: 4px;
+  background: rgba(10,10,20,0.85);
+  border: 1px solid var(--border);
+  padding: 6px;
+  border-radius: 3px;
+}
+
+.flight-controls .time-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.flight-controls .time-btn:hover { color: var(--text); border-color: var(--accent); }
+.flight-controls .time-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+.flight-controls .pause-btn.paused { background: var(--warn); color: #000; border-color: var(--warn); }
+
+.flight-log {
+  height: 130px;
+  overflow-y: auto;
+  padding: 8px 24px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.flight-log .log-entry {
+  line-height: 1.5;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed rgba(255,255,255,0.04);
+}
+
+.flight-log .log-entry.log-event { color: var(--warn); }
+.flight-log .log-entry.log-success { color: var(--good); }
+.flight-log .log-entry.log-fail { color: var(--bad); }
+.flight-log .log-dim { opacity: 0.4; font-style: italic; }
+
+.choice-effects {
+  margin-top: 6px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.eff-good { color: var(--good); }
+.eff-bad { color: var(--bad); }
+
+@media (max-width: 900px) {
+  .flight-resources { grid-template-columns: repeat(2, 1fr); }
+  .flight-log { height: 90px; }
+}

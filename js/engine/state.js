@@ -2,14 +2,15 @@
 // exported functions. Do not mutate state directly from a screen.
 
 export const state = {
-  // account + mission config
   user: null,
   mission: null,
+  completedMissions: [],
   destination: 'mars',
   difficulty: 'explorer',
   site: null,
   missionLengthSols: 90,
-
+    // flight phase
+  flight: null,
   // rocket side
   template: null,
   templates: [],
@@ -219,4 +220,34 @@ export function loadSavedRockets() {
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
+}
+// ---------- mission progress ----------
+
+const MISSIONS_KEY = 'ma_completed_missions';
+
+export function getCompletedMissions() {
+  try {
+    const raw = localStorage.getItem(MISSIONS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export function setCompletedMissions(ids) {
+  try {
+    localStorage.setItem(MISSIONS_KEY, JSON.stringify(ids));
+  } catch (e) {}
+  state.completedMissions = ids;
+  notify();
+}
+
+export function markMissionComplete(id) {
+  const done = getCompletedMissions();
+  if (!done.includes(id)) {
+    done.push(id);
+    setCompletedMissions(done);
+  }
 }

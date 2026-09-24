@@ -1,0 +1,99 @@
+{
+  "missions": [
+    {
+      "id": "sounding",
+      "name": "Sounding Rocket",
+      "tagline": "Straight up, straight down",
+      "target": "Suborbital",
+      "difficulty": 1,
+      "brief": "Reach 100 km altitude and return the payload intact. This is the first mission every space program flies.",
+      "visualTarget": "suborbital",
+      "requirements": {
+        "minDeltaV_kms": 3.0,
+        "minTwr": 1.15,
+        "maxMass_kg": 1500,
+        "maxCost_usd": 30000000,
+        "minApogee_km": 80,
+        "maxApogee_km": 900
+      },
+      "reward": 100,
+      "unlocks": ["leo"]
+    },
+    {
+      "id": "leo",
+      "name": "Low Earth Orbit",
+      "tagline": "The hardest part is staying up",
+      "target": "200 km circular orbit",
+      "difficulty": 2,
+      "brief": "Reach orbital velocity and place a payload in a stable 200 km orbit. This is what every satellite needs.",
+      "visualTarget": "leo",
+      "requirements": {
+        "minDeltaV_kms": 6.5,
+        "minTwr": 1.2,
+        "maxMass_kg": 5000,
+        "maxCost_usd": 120000000,
+        "minApogee_km": 300,
+        "maxApogee_km": 2000
+      },
+      "reward": 250,
+      "unlocks": ["lunar_flyby"]
+    },
+    {
+      "id": "lunar_flyby",
+      "name": "Lunar Flyby",
+      "tagline": "Escape the well, fall toward the Moon",
+      "target": "Lunar free-return trajectory",
+      "difficulty": 3,
+      "brief": "Push past Earth escape velocity, coast to the Moon, and return. Three days out, three days back.",
+      "visualTarget": "lunar",
+      "requirements": {
+        "minDeltaV_kms": 10.0,
+        "minTwr": 1.25,
+        "maxMass_kg": 15000,
+        "maxCost_usd": 350000000,
+        "minApogee_km": 300000,
+        "maxApogee_km": 500000
+      },
+      "reward": 500,
+      "unlocks": ["mars_orbiter"]
+    },
+    {
+      "id": "mars_orbiter",
+      "name": "Mars Orbiter",
+      "tagline": "Seven months alone in the dark",
+      "target": "Mars 400 km orbit",
+      "difficulty": 4,
+      "brief": "Launch during a real window, coast 259 days, and enter Mars orbit with enough fuel left to correct your aim.",
+      "visualTarget": "mars",
+      "requirements": {
+        "minDeltaV_kms": 12.5,
+        "minTwr": 1.3,
+        "maxMass_kg": 30000,
+        "maxCost_usd": 900000000,
+        "minApogee_km": 200000000,
+        "maxApogee_km": 300000000
+      },
+      "reward": 1000,
+      "unlocks": ["mars_sample_return"]
+    },
+    {
+      "id": "mars_sample_return",
+      "name": "Mars Sample Return",
+      "tagline": "Bring a piece of another world home",
+      "target": "Jezero Crater surface return",
+      "difficulty": 5,
+      "brief": "Everything in one mission: launch, transfer, orbit, land, drill, ascend, and return. Two separate flights worth of hardware in one stack.",
+      "visualTarget": "mars_full",
+      "requirements": {
+        "minDeltaV_kms": 15.0,
+        "minTwr": 1.3,
+        "maxMass_kg": 60000,
+        "maxCost_usd": 2800000000,
+        "minApogee_km": 200000000,
+        "maxApogee_km": 300000000
+      },
+      "reward": 2000,
+      "unlocks": []
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "events": [
+    {
+      "id": "solar_flare",
+      "title": "SOLAR PARTICLE EVENT",
+      "description": "X-class flare detected. Energetic particles will reach the spacecraft in approximately 40 minutes.",
+      "weight": 1.2,
+      "choices": [
+        { "text": "Power down non-essential systems", "effects": { "power": -12, "data": -4 }, "outcome": "Electronics rode it out. Data collection paused for six hours." },
+        { "text": "Ride it out with full systems", "effects": { "hull": -10, "data": 3 }, "outcome": "Some sensor degradation. Telemetry continues." }
+      ]
+    },
+    {
+      "id": "micrometeoroid",
+      "title": "MICROMETEOROID IMPACT",
+      "description": "Hull sensor registered a strike on the outer skin. Pressure is holding. Damage assessment required.",
+      "weight": 0.9,
+      "choices": [
+        { "text": "Run full diagnostic", "effects": { "power": -8, "data": -2 }, "outcome": "Impact confirmed superficial. No structural loss." },
+        { "text": "Monitor only", "effects": { "hull": -8 }, "outcome": "Undetected secondary damage. Possible." }
+      ]
+    },
+    {
+      "id": "comms_drift",
+      "title": "COMMS ARRAY DRIFT",
+      "description": "The high-gain antenna has lost lock with the Deep Space Network. Signal strength dropping.",
+      "weight": 1.1,
+      "choices": [
+        { "text": "Realign antenna", "effects": { "power": -10 }, "outcome": "Lock restored. Signal nominal." },
+        { "text": "Switch to low-gain backup", "effects": { "data": -8 }, "outcome": "Slow but functional. Data backlog accumulating." }
+      ]
+    },
+    {
+      "id": "navigation_drift",
+      "title": "NAVIGATION DRIFT",
+      "description": "Star tracker has picked up a small course error. Left uncorrected it will grow.",
+      "weight": 1.0,
+      "choices": [
+        { "text": "Execute course correction burn", "effects": { "fuel": -6 }, "outcome": "Trajectory corrected. Consumption nominal." },
+        { "text": "Accept the drift", "effects": { "power": -4 }, "outcome": "Error accumulates. Autopilot working harder." }
+      ]
+    },
+    {
+      "id": "battery_degradation",
+      "title": "BATTERY CELL FAULT",
+      "description": "One battery string is discharging faster than expected. Thermal warning triggered.",
+      "weight": 0.8,
+      "choices": [
+        { "text": "Isolate the faulty string", "effects": { "power": -14 }, "outcome": "Lose capacity but save the rest of the bank." },
+        { "text": "Boost thermal control", "effects": { "power": -6, "data": -2 }, "outcome": "Cell temperature stabilised." }
+      ]
+    },
+    {
+      "id": "science_target",
+      "title": "TARGET OF OPPORTUNITY",
+      "description": "A near-Earth object is passing close to the trajectory. Good scientific return if you divert.",
+      "weight": 0.7,
+      "choices": [
+        { "text": "Divert for full observation", "effects": { "fuel": -5, "data": 15 }, "outcome": "Close pass imaged. Sample data is excellent." },
+        { "text": "Hold course", "effects": {}, "outcome": "Opportunity passes. No data return." }
+      ]
+    },
+    {
+      "id": "crew_fatigue",
+      "title": "CREW FATIGUE",
+      "description": "Six months of transit is taking a toll. Task completion has dropped below nominal.",
+      "weight": 0.9,
+      "choices": [
+        { "text": "Order mandatory rest cycle", "effects": { "data": -6, "power": 3 }, "outcome": "Crew recovers. Science paused for two weeks." },
+        { "text": "Push through the schedule", "effects": { "data": -12 }, "outcome": "Errors accumulate in the workload." }
+      ]
+    },
+    {
+      "id": "thermal_anomaly",
+      "title": "THERMAL ANOMALY",
+      "description": "Spacecraft thermal balance is drifting. One side is running hotter than planned.",
+      "weight": 0.8,
+      "choices": [
+        { "text": "Rotate spacecraft to balance", "effects": { "power": -6, "data": -2 }, "outcome": "Temperatures evened out. Science briefly paused." },
+        { "text": "Increase radiator throughput", "effects": { "power": -10 }, "outcome": "Heat dumped. Higher power draw." }
+      ]
+    },
+    {
+      "id": "unexpected_signal",
+      "title": "UNEXPECTED SIGNAL",
+      "description": "The antenna picked up a narrow-band transmission from an unknown source. Not DSN. Not a known satellite.",
+      "weight": 0.4,
+      "choices": [
+        { "text": "Record and analyse", "effects": { "power": -8, "data": 10 }, "outcome": "Signal recorded. Analysis will happen on the ground." },
+        { "text": "Disregard as interference", "effects": {}, "outcome": "Signal ignored. Opportunity lost." }
+      ]
+    },
+    {
+      "id": "attitude_error",
+      "title": "ATTITUDE ERROR",
+      "description": "Reaction wheels are fighting an unexpected torque. The spacecraft is slowly rotating.",
+      "weight": 0.9,
+      "choices": [
+        { "text": "Fire RCS thrusters", "effects": { "fuel": -4 }, "outcome": "Attitude corrected. Fuel cost modest." },
+        { "text": "Recycle reaction wheels", "effects": { "power": -8 }, "outcome": "Wheels reset. Slight attitude drift remains." }
+      ]
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { getPreset } from './quality.js';
 
 const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry/i.test(navigator.userAgent)
   || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
@@ -138,7 +139,9 @@ function makeContactShadowTexture() {
   return tex;
 }
 
-export function createScene(wrap) {
+export function createScene(wrap, qualityId) {
+  const preset = getPreset(qualityId);
+
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a18);
   scene.fog = new THREE.FogExp2(0x1a1e2e, IS_MOBILE ? 0.0025 : 0.0032);
@@ -149,16 +152,28 @@ export function createScene(wrap) {
   camera.lookAt(0, 10, 0);
 
   const renderer = new THREE.WebGLRenderer({
-    antialias: false,
+    antialias: preset.antialias,
     alpha: false,
     powerPreference: 'high-performance',
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.5 : 2));
+
+  // On mobile, halve whatever the preset asks for. A phone running at
+  // Ultra would melt. The cap keeps it sane.
+  const pixRatio = IS_MOBILE
+    ? Math.min(preset.pixelRatio, 1.25)
+    : preset.pixelRatio;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixRatio));
+
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = IS_MOBILE ? 1.15 : 1.35;
+  renderer.toneMappingExposure = IS_MOBILE ? preset.exposure * 0.9 : preset.exposure;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = IS_MOBILE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+
+  renderer.shadowMap.enabled = preset.shadows.enabled;
+  renderer.shadowMap.type = preset.shadows.type === 'PCFSoft'
+    ? THREE.PCFSoftShadowMap
+    : preset.shadows.type === 'PCF'
+      ? THREE.PCFShadowMap
+      : THREE.BasicShadowMap;
 
   renderer.domElement.style.touchAction = 'none';
   renderer.domElement.style.webkitUserSelect = 'none';
@@ -195,9 +210,9 @@ export function createScene(wrap) {
 
   const key = new THREE.DirectionalLight(0xffffff, IS_MOBILE ? 1.8 : 2.0);
   key.position.set(20, 40, 20);
-  key.castShadow = true;
-  key.shadow.mapSize.width = IS_MOBILE ? 1024 : 2048;
-  key.shadow.mapSize.height = IS_MOBILE ? 1024 : 2048;
+  key.castShadow = preset.shadows.enabled;
+  key.shadow.mapSize.width = preset.shadows.mapSize;
+  key.shadow.mapSize.height = preset.shadows.mapSize;
   key.shadow.camera.near = 1;
   key.shadow.camera.far = 120;
   key.shadow.camera.left = -40;
@@ -248,16 +263,16 @@ export function createScene(wrap) {
 
   const rocketGroup = new THREE.Group();
   scene.add(rocketGroup);
-  const environment = createEnvironment(scene);
+  const environment = createEnvironment(scene, preset);
 
   const composer = new EffectComposer(renderer);
   composer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.5 : 2));
   composer.addPass(new RenderPass(scene, camera));
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(wrap.clientWidth || 800, wrap.clientHeight || 600),
-    IS_MOBILE ? 0.55 : 0.85,
-    IS_MOBILE ? 0.4 : 0.65,
-    IS_MOBILE ? 0.82 : 0.72
+    preset.bloom.enabled ? (IS_MOBILE ? preset.bloom.strength * 0.6 : preset.bloom.strength) : 0,
+    preset.bloom.radius,
+    preset.bloom.threshold
   );
   composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
@@ -328,6 +343,6 @@ export function createScene(wrap) {
 
   return {
     scene, camera, renderer, controls, rocketGroup, dispose,
-    IS_MOBILE, composer, enableShadows, contactShadow, environment,
+    IS_MOBILE, composer, enableShadows, contactShadow, environment, preset,
   };
 }

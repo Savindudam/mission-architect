@@ -27,7 +27,6 @@ const SLOT_SHAPE_BASE = {
 
 const SIZE_SCALE = { S: 0.65, M: 1.0, L: 1.45, XL: 2.0 };
 
-// Slots that detonate on impact when a failed rocket collapses.
 const EXPLOSIVE_SLOTS = new Set([
   'engine_cluster', 'fuel_tank', 'oxidizer_tank', 'upper_engine', 'upper_tank',
 ]);
@@ -623,11 +622,202 @@ export function spawnExplosion(scene, worldPosition, intensity = 1.0) {
 }
 
 // =========================================================
-// COLLAPSE (when a rocket cannot fly)
+// IGNITION FLASH
 // =========================================================
-// Empty wireframes vanish. Real hardware falls. Explosive parts detonate
-// on ground contact. Ground collision uses the rotated bounding box, so
-// nothing clips through the surface.
+export function spawnIgnitionFlash(scene, position) {
+  const group = new THREE.Group();
+  group.position.copy(position);
+  scene.add(group);
+
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.6, 20, 16), coreMat);
+  group.add(core);
+
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: 0xffaa55,
+    transparent: true,
+    opacity: 0.8,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(1.4, 20, 16), haloMat);
+  group.add(halo);
+
+  const light = new THREE.PointLight(0xffddaa, 25, 60);
+  group.add(light);
+
+  const start = performance.now();
+  const DURATION = 900;
+  let animId = null;
+
+  function loop() {
+    const t = (performance.now() - start) / DURATION;
+    if (t >= 1) {
+      scene.remove(group);
+      group.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+      return;
+    }
+    core.scale.setScalar(1 + t * 3.5);
+    coreMat.opacity = Math.max(0, 1 - t * 1.6);
+    halo.scale.setScalar(1 + t * 5);
+    haloMat.opacity = Math.max(0, 0.8 - t * 1.2);
+    light.intensity = Math.max(0, 25 * (1 - t * 2.5));
+    animId = requestAnimationFrame(loop);
+  }
+  animId = requestAnimationFrame(loop);
+
+  return () => {
+    if (animId) cancelAnimationFrame(animId);
+    scene.remove(group);
+  };
+}
+
+// =========================================================
+// GROUND SMOKE
+// =========================================================
+export function spawnGroundSmoke(scene, position, intensity = 1.0) {
+  const group = new THREE.Group();
+  group.position.copy(position);
+  scene.add(group);
+
+  const puffs = [];
+  const PUFF_COUNT = 14;
+
+  for (let i = 0; i < PUFF_COUNT; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xcccccc,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    const puff = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), mat);
+    const angle = (i / PUFF_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+    const speed = (3 + Math.random() * 3) * intensity;
+    puff.userData = {
+      velocity: new THREE.Vector3(
+        Math.cos(angle) * speed,
+        0.4 + Math.random() * 0.8,
+        Math.sin(angle) * speed
+      ),
+      delay: i * 0.05,
+    };
+    group.add(puff);
+    puffs.push(puff);
+  }
+
+  const start = performance.now();
+  const DURATION = 3500;
+  let animId = null;
+  let lastT = start;
+
+  function loop() {
+    const now = performance.now();
+    const t = (now - start) / DURATION;
+    const dt = Math.min(0.05, (now - lastT) / 1000);
+    lastT = now;
+
+    if (t >= 1) {
+      scene.remove(group);
+      group.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+      return;
+    }
+
+    for (const puff of puffs) {
+      const age = Math.max(0, t - puff.userData.delay);
+      if (age <= 0) continue;
+      puff.position.addScaledVector(puff.userData.velocity, dt);
+      puff.userData.velocity.y -= 0.4 * dt;
+      puff.userData.velocity.multiplyScalar(0.985);
+      const size = 1 + age * 6;
+      puff.scale.setScalar(size);
+      const op = age < 0.15
+        ? (age / 0.15) * 0.65
+        : Math.max(0, 0.65 * (1 - (age - 0.15) / 0.7));
+      puff.material.opacity = op;
+    }
+
+    animId = requestAnimationFrame(loop);
+  }
+  animId = requestAnimationFrame(loop);
+
+  return () => {
+    if (animId) cancelAnimationFrame(animId);
+    scene.remove(group);
+  };
+}
+
+// =========================================================
+// CLAMP SPARKS
+// =========================================================
+export function spawnClampSparks(scene, position) {
+  const group = new THREE.Group();
+  group.position.copy(position);
+  scene.add(group);
+
+  const sparks = [];
+  for (let i = 0; i < 20; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: Math.random() > 0.5 ? 0xffdd66 : 0xff8833,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const spark = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), mat);
+    const angle = Math.random() * Math.PI * 2;
+    const up = 1 + Math.random() * 4;
+    const out = 2 + Math.random() * 5;
+    spark.userData.velocity = new THREE.Vector3(
+      Math.cos(angle) * out,
+      up,
+      Math.sin(angle) * out
+    );
+    group.add(spark);
+    sparks.push(spark);
+  }
+
+  const start = performance.now();
+  const DURATION = 1200;
+  let animId = null;
+  let lastT = start;
+
+  function loop() {
+    const now = performance.now();
+    const t = (now - start) / DURATION;
+    const dt = Math.min(0.05, (now - lastT) / 1000);
+    lastT = now;
+
+    if (t >= 1) {
+      scene.remove(group);
+      group.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+      return;
+    }
+
+    for (const s of sparks) {
+      s.position.addScaledVector(s.userData.velocity, dt);
+      s.userData.velocity.y -= 9.8 * dt;
+      s.material.opacity = Math.max(0, 1 - t * 1.5);
+    }
+
+    animId = requestAnimationFrame(loop);
+  }
+  animId = requestAnimationFrame(loop);
+
+  return () => {
+    if (animId) cancelAnimationFrame(animId);
+    scene.remove(group);
+  };
+}
+
+// =========================================================
+// COLLAPSE
+// =========================================================
 export function collapseRocket(rocketGroup, supportGroup, scene) {
   const segments = rocketGroup.userData.segments || [];
   if (segments.length === 0) return;
@@ -654,8 +844,6 @@ export function collapseRocket(rocketGroup, supportGroup, scene) {
     const h = seg.userData.height || slotMesh.userData.height || 1;
     const d = slotMesh.userData.diameter || h;
 
-    // Re-center the mesh on the segment origin so rotation happens around
-    // the geometric center rather than the base.
     slotMesh.position.y = 0;
 
     const wp = new THREE.Vector3();
@@ -684,7 +872,6 @@ export function collapseRocket(rocketGroup, supportGroup, scene) {
     });
   }
 
-  // Empty wireframes just disappear.
   for (const p of placeholders) {
     if (p.parent) p.parent.remove(p);
     p.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
@@ -692,7 +879,6 @@ export function collapseRocket(rocketGroup, supportGroup, scene) {
 
   if (pieces.length === 0) return;
 
-  // Detach pieces from the stack so upper segments don't follow lower ones.
   for (const piece of pieces) {
     const seg = piece.seg;
 
@@ -731,8 +917,6 @@ export function collapseRocket(rocketGroup, supportGroup, scene) {
       piece.seg.position.copy(piece.position);
       piece.seg.rotation.copy(piece.rotation);
 
-      // World Y extent of the rotated bounding box. Column-major storage
-      // means the second row of the rotation matrix is e[1], e[5], e[9].
       rotMatrix.makeRotationFromEuler(piece.rotation);
       const e = rotMatrix.elements;
       const extentY =
@@ -793,6 +977,8 @@ export function playLaunchSequence({
   rocketGroup,
   supportGroup,
   scene,
+  camera,
+  controls,
   template,
   installed,
   onPhase = () => {},
@@ -852,10 +1038,38 @@ export function playLaunchSequence({
   rocketGroup.rotation.set(0, 0, 0);
   rocketGroup.visible = true;
 
-  const startTime = performance.now();
+  // ---- camera state for shake and follow ----
+  const cameraBasePos = camera ? camera.position.clone() : null;
+  const cameraBaseTarget = controls ? controls.target.clone() : null;
+
+  function applyCameraShake(intensity) {
+    if (!camera || !cameraBasePos) return;
+    const t = performance.now() * 0.05;
+    camera.position.x = cameraBasePos.x + Math.sin(t * 1.7) * intensity;
+    camera.position.y = cameraBasePos.y + Math.cos(t * 2.3) * intensity;
+    camera.position.z = cameraBasePos.z + Math.sin(t * 3.1) * intensity;
+  }
+
+  function restoreCamera() {
+    if (camera && cameraBasePos) camera.position.copy(cameraBasePos);
+    if (controls && cameraBaseTarget) controls.target.copy(cameraBaseTarget);
+  }
+
+  function followRocket(strength) {
+    if (!camera || !controls) return;
+    const targetY = rocketGroup.position.y + totalHeight * 0.4;
+    controls.target.y += (targetY - controls.target.y) * strength;
+  }
+
+  // ---- per-mission flags so we only spawn things once ----
+  let clampSparksFired = false;
+  let ignitionFlashRef = null;
+  let groundSmokeRef = null;
   let explosionSpawned = false;
   let explosionRef = null;
   let collapseTriggered = false;
+
+  const startTime = performance.now();
 
   const loop = () => {
     const elapsed = performance.now() - startTime;
@@ -865,6 +1079,13 @@ export function playLaunchSequence({
       if (elapsed < CLAMP_MS) {
         retractClamps(supportGroup, elapsed / CLAMP_MS);
         onPhase('clamps');
+
+        if (!clampSparksFired) {
+          clampSparksFired = true;
+          const pos = new THREE.Vector3();
+          rocketGroup.getWorldPosition(pos);
+          spawnClampSparks(scene, pos);
+        }
       } else if (elapsed < 1800) {
         retractClamps(supportGroup, 1);
         onPhase('silent');
@@ -874,6 +1095,7 @@ export function playLaunchSequence({
         onPhase('collapsed');
       } else if (elapsed > 5200) {
         rocketGroup.visible = true;
+        restoreCamera();
         onComplete(false, { quality: 0, twr, peakHeight: 0, landClean: false, reason });
         activeLaunchId = null;
         return;
@@ -887,6 +1109,13 @@ export function playLaunchSequence({
       if (elapsed < CLAMP_MS) {
         retractClamps(supportGroup, elapsed / CLAMP_MS);
         onPhase('clamps');
+
+        if (!clampSparksFired) {
+          clampSparksFired = true;
+          const pos = new THREE.Vector3();
+          rocketGroup.getWorldPosition(pos);
+          spawnClampSparks(scene, pos);
+        }
       } else if (elapsed < 2200) {
         retractClamps(supportGroup, 1);
         if (Math.random() > 0.65) {
@@ -908,6 +1137,7 @@ export function playLaunchSequence({
         onPhase('collapsed');
       } else if (elapsed > 5600) {
         rocketGroup.visible = true;
+        restoreCamera();
         onComplete(false, { quality: 0, twr, peakHeight: 0, landClean: false, reason });
         activeLaunchId = null;
         return;
@@ -921,8 +1151,16 @@ export function playLaunchSequence({
       if (elapsed < CLAMP_MS) {
         retractClamps(supportGroup, elapsed / CLAMP_MS);
         onPhase('clamps');
+
+        if (!clampSparksFired) {
+          clampSparksFired = true;
+          const pos = new THREE.Vector3();
+          rocketGroup.getWorldPosition(pos);
+          spawnClampSparks(scene, pos);
+        }
       } else if (elapsed < 1400) {
         retractClamps(supportGroup, 1);
+        if (camera) applyCameraShake(0.15);
         const flames = showAllFlames(rocketGroup);
         for (const f of flames) {
           const flick = 0.9 + Math.random() * 0.2;
@@ -939,6 +1177,7 @@ export function playLaunchSequence({
                         : template.sizeClassMax === 'M' ? 1.0
                         : template.sizeClassMax === 'L' ? 1.4 : 1.8;
         explosionRef = spawnExplosion(scene, worldPos, intensity);
+        if (camera) applyCameraShake(0.5);
         rocketGroup.visible = false;
         hideAllFlames(rocketGroup);
         onPhase('exploded');
@@ -948,6 +1187,7 @@ export function playLaunchSequence({
         rocketGroup.position.set(0, 0, 0);
         rocketGroup.rotation.set(0, 0, 0);
         resetClamps(supportGroup);
+        restoreCamera();
         onComplete(false, { quality: 0, twr, peakHeight: 0, landClean: false, reason });
         activeLaunchId = null;
         return;
@@ -961,6 +1201,13 @@ export function playLaunchSequence({
       if (elapsed < CLAMP_MS) {
         retractClamps(supportGroup, elapsed / CLAMP_MS);
         onPhase('clamps');
+
+        if (!clampSparksFired) {
+          clampSparksFired = true;
+          const pos = new THREE.Vector3();
+          rocketGroup.getWorldPosition(pos);
+          spawnClampSparks(scene, pos);
+        }
       } else if (elapsed < 2600) {
         retractClamps(supportGroup, 1);
         const flames = showAllFlames(rocketGroup);
@@ -970,6 +1217,7 @@ export function playLaunchSequence({
         }
         rocketGroup.position.x = Math.sin(elapsed * 0.1) * 0.1;
         rocketGroup.position.z = Math.cos(elapsed * 0.12) * 0.1;
+        if (camera) applyCameraShake(0.08);
         onPhase('straining');
       } else if (!collapseTriggered) {
         hideAllFlames(rocketGroup);
@@ -978,6 +1226,7 @@ export function playLaunchSequence({
         onPhase('collapsed');
       } else if (elapsed > 7000) {
         rocketGroup.visible = true;
+        restoreCamera();
         onComplete(false, { quality: 0, twr, peakHeight: 0, landClean: false, reason });
         activeLaunchId = null;
         return;
@@ -990,9 +1239,35 @@ export function playLaunchSequence({
     if (elapsed < CLAMP_MS) {
       retractClamps(supportGroup, elapsed / CLAMP_MS);
       onPhase('clamps');
+
+      if (!clampSparksFired) {
+        clampSparksFired = true;
+        const pos = new THREE.Vector3();
+        rocketGroup.getWorldPosition(pos);
+        spawnClampSparks(scene, pos);
+      }
     } else if (elapsed < CLAMP_MS + 4000) {
       retractClamps(supportGroup, 1);
       const p = (elapsed - CLAMP_MS) / 4000;
+
+      // first moment of ascent — flash and smoke
+      if (!ignitionFlashRef) {
+        const pos = new THREE.Vector3();
+        rocketGroup.getWorldPosition(pos);
+        ignitionFlashRef = spawnIgnitionFlash(scene, pos);
+      }
+      if (!groundSmokeRef) {
+        const pos = new THREE.Vector3();
+        rocketGroup.getWorldPosition(pos);
+        pos.y = 0.5;
+        groundSmokeRef = spawnGroundSmoke(scene, pos, 1.2);
+      }
+
+      // camera follow + fading shake
+      followRocket(0.08);
+      const shake = Math.max(0, 0.35 * (1 - p * 1.5));
+      if (shake > 0.01) applyCameraShake(shake);
+
       const flames = showAllFlames(rocketGroup);
       for (const f of flames) {
         const flick = 0.85 + Math.random() * 0.3;
@@ -1006,6 +1281,7 @@ export function playLaunchSequence({
       rocketGroup.rotation.x = tiltAmount * driftDirZ * p * 0.5;
       onPhase('ascent');
     } else if (elapsed < CLAMP_MS + 4600) {
+      followRocket(0.05);
       const flames = showAllFlames(rocketGroup);
       for (const f of flames) {
         const flick = 0.85 + Math.random() * 0.3;
@@ -1015,6 +1291,7 @@ export function playLaunchSequence({
       onPhase('hover');
     } else if (elapsed < CLAMP_MS + 4600 + 4000) {
       const p = (elapsed - CLAMP_MS - 4600) / 4000;
+      followRocket(0.05);
       const flames = showAllFlames(rocketGroup);
       for (const f of flames) {
         const flick = 0.85 + Math.random() * 0.3;
@@ -1055,6 +1332,7 @@ export function playLaunchSequence({
       rocketGroup.position.set(0, 0, 0);
       rocketGroup.rotation.set(0, 0, 0);
       hideAllFlames(rocketGroup);
+      restoreCamera();
       onComplete(true, { quality: 1, twr, peakHeight, landClean: true, reason: 'Clean flight.' });
       activeLaunchId = null;
       return;
