@@ -155,7 +155,7 @@ export function createScene(wrap) {
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.5 : 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = IS_MOBILE ? 1.0 : 1.1;
+  renderer.toneMappingExposure = IS_MOBILE ? 1.15 : 1.35;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = IS_MOBILE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
@@ -187,10 +187,10 @@ export function createScene(wrap) {
   controls.panSpeed = IS_MOBILE ? 0.6 : 1.0;
   controls.update();
 
-  const ambient = new THREE.AmbientLight(0xffffff, IS_MOBILE ? 0.32 : 0.24);
+  const ambient = new THREE.AmbientLight(0xffd8b0, IS_MOBILE ? 0.22 : 0.18);
   scene.add(ambient);
 
-  const hemi = new THREE.HemisphereLight(0x88aaff, 0x221a10, IS_MOBILE ? 0.35 : 0.3);
+  const hemi = new THREE.HemisphereLight(0xa8c0ff, 0x4a2818, IS_MOBILE ? 0.5 : 0.45);
   scene.add(hemi);
 
   const key = new THREE.DirectionalLight(0xffffff, IS_MOBILE ? 1.8 : 2.0);
@@ -255,9 +255,9 @@ export function createScene(wrap) {
   composer.addPass(new RenderPass(scene, camera));
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(wrap.clientWidth || 800, wrap.clientHeight || 600),
+    IS_MOBILE ? 0.55 : 0.85,
     IS_MOBILE ? 0.4 : 0.65,
-    IS_MOBILE ? 0.35 : 0.5,
-    IS_MOBILE ? 0.9 : 0.85
+    IS_MOBILE ? 0.82 : 0.72
   );
   composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
@@ -290,7 +290,7 @@ export function createScene(wrap) {
         controls.update();
         if (controls.target.y < 1) controls.target.y = 1;
         if (camera.position.y < 1) camera.position.y = 1;
-        updateEnvironment(environment, now * 0.001);
+        updateEnvironment(environment, now * 0.001, Math.min(0.05, delta / 1000));
         const y = rocketGroup.position.y;
         contactShadow.position.x = rocketGroup.position.x;
         contactShadow.position.z = rocketGroup.position.z;
