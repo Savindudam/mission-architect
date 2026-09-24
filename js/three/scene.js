@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createEnvironment, updateEnvironment } from './environment.js';
 import { createActivity, updateActivity } from './activity.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -139,8 +140,9 @@ function makeContactShadowTexture() {
 
 export function createScene(wrap) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x050510);
-  scene.fog = new THREE.FogExp2(0x050510, IS_MOBILE ? 0.006 : 0.008);
+  scene.background = new THREE.Color(0x0a0a18);
+  scene.fog = new THREE.FogExp2(0x1a1e2e, IS_MOBILE ? 0.0025 : 0.0032);
+
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
   camera.position.set(20, 14, 30);
@@ -167,13 +169,19 @@ export function createScene(wrap) {
 
   scene.environment = makeEnvMap(renderer);
 
-  const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.target.set(0, 10, 0);
   controls.minDistance = 6;
-  controls.maxDistance = 120;
-  controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+  controls.maxDistance = 180;
+  controls.minPolarAngle = 0.15;              // never look straight down
+  controls.maxPolarAngle = Math.PI * 0.49;    // never go below the horizon
+  controls.screenSpacePanning = false;        // pan along the ground plane
+  controls.touches = {
+    ONE: THREE.TOUCH.ROTATE,
+    TWO: THREE.TOUCH.DOLLY_PAN,
+  };
   controls.zoomSpeed = IS_MOBILE ? 0.8 : 1.0;
   controls.rotateSpeed = IS_MOBILE ? 0.55 : 1.0;
   controls.panSpeed = IS_MOBILE ? 0.6 : 1.0;
@@ -214,9 +222,7 @@ export function createScene(wrap) {
     scene.add(under);
   }
 
-  const grid = makeGrid();
-  grid.position.y = -0.05;
-  scene.add(grid);
+  
 
   const shadowPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(120, 120),
@@ -242,7 +248,7 @@ export function createScene(wrap) {
 
   const rocketGroup = new THREE.Group();
   scene.add(rocketGroup);
-  const activity = createActivity(scene);
+  const environment = createEnvironment(scene);
 
   const composer = new EffectComposer(renderer);
   composer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.5 : 2));
@@ -282,7 +288,9 @@ export function createScene(wrap) {
       lastFrame = now - (delta % frameBudget);
       if (!paused) {
         controls.update();
-        updateActivity(activity, now * 0.001, Math.min(0.05, delta / 1000));
+        if (controls.target.y < 1) controls.target.y = 1;
+        if (camera.position.y < 1) camera.position.y = 1;
+        updateEnvironment(environment, now * 0.001);
         const y = rocketGroup.position.y;
         contactShadow.position.x = rocketGroup.position.x;
         contactShadow.position.z = rocketGroup.position.z;
@@ -320,6 +328,6 @@ export function createScene(wrap) {
 
   return {
     scene, camera, renderer, controls, rocketGroup, dispose,
-    IS_MOBILE, composer, enableShadows, contactShadow, activity,
+    IS_MOBILE, composer, enableShadows, contactShadow, environment,
   };
 }
