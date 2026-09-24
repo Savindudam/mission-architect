@@ -435,9 +435,12 @@ export function mountBuilder(root) {
     alert('Saved as "' + name + '"');
   });
 
- root.querySelector('#btn-confirm').addEventListener('click', () => {
+    root.querySelector('#btn-confirm').addEventListener('click', () => {
     if (launchActive) return;
-    window.dispatchEvent(new CustomEvent('navigate', { detail: 'trajectory' }));
+    playEngineBurn(three.rocketGroup, 800);
+    setTimeout(() => {
+      alert('Design confirmed. That is the end of the flow for now.');
+    }, 900);
   });
   renderAll();
 

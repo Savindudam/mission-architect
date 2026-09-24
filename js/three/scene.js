@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createActivity, updateActivity } from './activity.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -241,6 +242,7 @@ export function createScene(wrap) {
 
   const rocketGroup = new THREE.Group();
   scene.add(rocketGroup);
+  const activity = createActivity(scene);
 
   const composer = new EffectComposer(renderer);
   composer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.5 : 2));
@@ -280,6 +282,7 @@ export function createScene(wrap) {
       lastFrame = now - (delta % frameBudget);
       if (!paused) {
         controls.update();
+        updateActivity(activity, now * 0.001, Math.min(0.05, delta / 1000));
         const y = rocketGroup.position.y;
         contactShadow.position.x = rocketGroup.position.x;
         contactShadow.position.z = rocketGroup.position.z;
@@ -317,6 +320,6 @@ export function createScene(wrap) {
 
   return {
     scene, camera, renderer, controls, rocketGroup, dispose,
-    IS_MOBILE, composer, enableShadows, contactShadow,
+    IS_MOBILE, composer, enableShadows, contactShadow, activity,
   };
 }

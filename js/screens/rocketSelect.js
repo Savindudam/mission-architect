@@ -43,8 +43,7 @@ export function mountRocketSelect(root) {
     `;
     card.addEventListener('click', () => {
       setTemplate(t);
-      window.dispatchEvent(new CustomEvent('navigate', { detail: 'builder' }));
-    });
+    window.dispatchEvent(new CustomEvent('navigate', { detail: 'builder' }));    });
     grid.appendChild(card);
   }
 }

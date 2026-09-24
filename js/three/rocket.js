@@ -27,6 +27,11 @@ const SLOT_SHAPE_BASE = {
 
 const SIZE_SCALE = { S: 0.65, M: 1.0, L: 1.45, XL: 2.0 };
 
+// Slots that detonate on impact when a failed rocket collapses.
+const EXPLOSIVE_SLOTS = new Set([
+  'engine_cluster', 'fuel_tank', 'oxidizer_tank', 'upper_engine', 'upper_tank',
+]);
+
 function getSlotShape(slot, sizeClassMax) {
   const base = SLOT_SHAPE_BASE[slot] || { h: 1, d: 1 };
   const s = SIZE_SCALE[sizeClassMax] || 1.0;
@@ -150,6 +155,7 @@ export function buildRocket(rocketGroup, template, installedParts) {
 
     const nextParent = new THREE.Group();
     nextParent.position.y = h;
+    nextParent.userData.isNextParent = true;
     seg.add(nextParent);
     parent = nextParent;
     segments.push(seg);
@@ -296,7 +302,6 @@ export function retractClamps(supportGroup, t) {
   }
 }
 
-// Reverse of retract — clamps close back around the tank.
 export function reengageClamps(supportGroup, t) {
   const pylons = supportGroup.userData.pylons || [];
   const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -375,41 +380,53 @@ export function computeFlightQuality(installed, template) {
 function makeFlameGroup(exitR, bellHeight) {
   const g = new THREE.Group();
 
-  const outer = new THREE.Mesh(
-    new THREE.ConeGeometry(exitR * 1.05, bellHeight * 0.9, 20, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0xff7a1a, transparent: true, opacity: 0.75,
-      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
-    })
-  );
-  outer.rotation.x = Math.PI;
-  outer.position.y = -bellHeight * 0.45;
-  g.add(outer);
+  const layers = [
+    { scale: 1.15, length: 1.00, color: 0xd14010, opacity: 0.35 },
+    { scale: 1.00, length: 0.92, color: 0xff6a1a, opacity: 0.55 },
+    { scale: 0.85, length: 0.80, color: 0xffaa33, opacity: 0.72 },
+    { scale: 0.65, length: 0.65, color: 0xffdd66, opacity: 0.85 },
+    { scale: 0.40, length: 0.50, color: 0xffffff, opacity: 0.95 },
+  ];
 
-  const mid = new THREE.Mesh(
-    new THREE.ConeGeometry(exitR * 0.7, bellHeight * 0.7, 20, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0xffcc44, transparent: true, opacity: 0.85,
-      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
-    })
-  );
-  mid.rotation.x = Math.PI;
-  mid.position.y = -bellHeight * 0.35;
-  g.add(mid);
+  const meshes = [];
+  for (const l of layers) {
+    const geo = new THREE.ConeGeometry(exitR * l.scale, bellHeight * l.length, 24, 1, true);
+    const mat = new THREE.MeshBasicMaterial({
+      color: l.color,
+      transparent: true,
+      opacity: l.opacity,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const cone = new THREE.Mesh(geo, mat);
+    cone.rotation.x = Math.PI;
+    cone.position.y = -bellHeight * l.length * 0.5;
+    g.add(cone);
+    meshes.push({ mesh: cone, baseOpacity: l.opacity });
+  }
 
-  const core = new THREE.Mesh(
-    new THREE.ConeGeometry(exitR * 0.4, bellHeight * 0.5, 20, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0xffffff, transparent: true, opacity: 0.95,
-      side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
-    })
-  );
-  core.rotation.x = Math.PI;
-  core.position.y = -bellHeight * 0.25;
-  g.add(core);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0xff8822,
+    transparent: true,
+    opacity: 0.5,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(exitR * 2.4, 32), glowMat);
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = -bellHeight * 1.05;
+  g.add(glow);
+
+  const light = new THREE.PointLight(0xff8822, 0, 12);
+  light.position.y = -bellHeight * 0.5;
+  g.add(light);
 
   g.visible = false;
-  g.userData.meshes = [outer, mid, core];
+  g.userData.meshes = meshes;
+  g.userData.glow = glow;
+  g.userData.light = light;
+  g.userData.baseLightIntensity = 3;
   return g;
 }
 
@@ -442,92 +459,322 @@ export function spawnExplosion(scene, worldPosition, intensity = 1.0) {
   group.position.copy(worldPosition);
   scene.add(group);
 
-  const fireMat = new THREE.MeshBasicMaterial({
-    color: 0xffcc44, transparent: true, opacity: 1,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  });
-  const fireball = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 12), fireMat);
-  group.add(fireball);
+  const fireballSpecs = [
+    { color: 0xfff2a0, opacity: 1.0, scaleRate: 3.5, size: 0.5 },
+    { color: 0xff9933, opacity: 0.9, scaleRate: 5.5, size: 0.85 },
+    { color: 0xd63300, opacity: 0.75, scaleRate: 7.5, size: 1.2 },
+  ];
+  const fireballs = [];
+  for (const s of fireballSpecs) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: s.color,
+      transparent: true,
+      opacity: s.opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(s.size, 24, 18), mat);
+    ball.userData = { scaleRate: s.scaleRate, baseOpacity: s.opacity };
+    group.add(ball);
+    fireballs.push(ball);
+  }
 
-  const fireball2Mat = new THREE.MeshBasicMaterial({
-    color: 0xff5522, transparent: true, opacity: 0.85,
-    blending: THREE.AdditiveBlending, depthWrite: false,
+  const ringGeo = new THREE.RingGeometry(0.2, 0.6, 64);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.95,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
   });
-  const fireball2 = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 12), fireball2Mat);
-  group.add(fireball2);
+  const shockwave = new THREE.Mesh(ringGeo, ringMat);
+  shockwave.rotation.x = -Math.PI / 2;
+  group.add(shockwave);
 
-  const light = new THREE.PointLight(0xffaa44, 4, 30);
-  group.add(light);
+  const sparks = [];
+  for (let i = 0; i < 30; i++) {
+    const sparkGeo = new THREE.BoxGeometry(0.07, 0.07, 0.07);
+    const sparkMat = new THREE.MeshBasicMaterial({
+      color: 0xffdd66,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const spark = new THREE.Mesh(sparkGeo, sparkMat);
+    const angle = Math.random() * Math.PI * 2;
+    const pitch = (Math.random() - 0.5) * Math.PI;
+    const speed = (7 + Math.random() * 14) * intensity;
+    spark.userData.velocity = new THREE.Vector3(
+      Math.cos(angle) * Math.cos(pitch) * speed,
+      Math.abs(Math.sin(pitch)) * speed * 0.6 + 3,
+      Math.sin(angle) * Math.cos(pitch) * speed
+    );
+    group.add(spark);
+    sparks.push(spark);
+  }
 
   const debris = [];
-  for (let i = 0; i < 18; i++) {
-    const size = 0.15 + Math.random() * 0.4;
-    const d = new THREE.Mesh(
-      new THREE.BoxGeometry(size, size * 0.5, size * 0.8),
-      new THREE.MeshStandardMaterial({
-        color: Math.random() < 0.4 ? 0x2a2a34 : (Math.random() < 0.5 ? 0xd8d8e0 : 0xff8844),
-        metalness: 0.7, roughness: 0.4,
-      })
-    );
+  const debrisColors = [0x2a2a34, 0x1a1a22, 0xd8d8e0, 0x6a6a78, 0xb87333, 0xffaa33];
+  for (let i = 0; i < 26; i++) {
+    const size = 0.12 + Math.random() * 0.55;
+    const geo = Math.random() < 0.5
+      ? new THREE.BoxGeometry(size, size * 0.6, size * 0.8)
+      : new THREE.TetrahedronGeometry(size * 0.8);
+    const mat = new THREE.MeshStandardMaterial({
+      color: debrisColors[Math.floor(Math.random() * debrisColors.length)],
+      metalness: 0.5 + Math.random() * 0.4,
+      roughness: 0.3 + Math.random() * 0.5,
+      emissive: Math.random() < 0.3 ? 0x441100 : 0x000000,
+      emissiveIntensity: 0.6,
+    });
+    const d = new THREE.Mesh(geo, mat);
     const angle = Math.random() * Math.PI * 2;
-    const speed = (4 + Math.random() * 8) * intensity;
+    const speed = (5 + Math.random() * 12) * intensity;
     d.userData.velocity = new THREE.Vector3(
-      Math.cos(angle) * speed * 0.7,
-      (3 + Math.random() * 9) * intensity,
-      Math.sin(angle) * speed * 0.7
+      Math.cos(angle) * speed * 0.8,
+      (4 + Math.random() * 14) * intensity,
+      Math.sin(angle) * speed * 0.8
     );
     d.userData.rotSpeed = new THREE.Vector3(
-      (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14
+      (Math.random() - 0.5) * 22,
+      (Math.random() - 0.5) * 22,
+      (Math.random() - 0.5) * 22
     );
     group.add(d);
     debris.push(d);
   }
 
+  const light = new THREE.PointLight(0xffaa55, 12 * intensity, 50 * intensity);
+  group.add(light);
+
+  const smokeMat = new THREE.MeshBasicMaterial({
+    color: 0x1a1a1a,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+  });
+  const smoke = new THREE.Mesh(new THREE.SphereGeometry(1.0, 16, 12), smokeMat);
+  group.add(smoke);
+
   const start = performance.now();
-  const DURATION = 3000;
+  const DURATION = 4500;
   let animId = null;
+  let lastT = start;
 
   const loop = () => {
-    const elapsed = performance.now() - start;
+    const now = performance.now();
+    const elapsed = now - start;
     const t = elapsed / DURATION;
+    const dt = Math.min(0.05, (now - lastT) / 1000);
+    lastT = now;
+
     if (t >= 1) {
       scene.remove(group);
       group.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
       return;
     }
 
-    const scale = 1 + t * 5 * intensity;
-    fireball.scale.setScalar(scale);
-    fireball2.scale.setScalar(scale * 1.2);
-    fireMat.opacity = Math.max(0, 1 - t * 1.6);
-    fireball2Mat.opacity = Math.max(0, 0.85 - t * 1.5);
-    light.intensity = Math.max(0, 4 * (1 - t * 3));
+    for (const ball of fireballs) {
+      const rate = ball.userData.scaleRate;
+      ball.scale.setScalar(1 + t * rate * intensity);
+      ball.material.opacity = Math.max(0, ball.userData.baseOpacity * (1 - t * 1.9));
+    }
 
-    if (t < 0.25) fireMat.color.setHex(0xffdd66);
-    else if (t < 0.5) fireMat.color.setHex(0xff8833);
-    else fireMat.color.setHex(0x442200);
+    shockwave.scale.setScalar(1 + t * 14 * intensity);
+    ringMat.opacity = Math.max(0, 0.95 * (1 - t * 3.2));
+
+    for (const s of sparks) {
+      s.position.addScaledVector(s.userData.velocity, dt);
+      s.userData.velocity.y -= 12 * dt;
+      s.material.opacity = Math.max(0, 1 - t * 1.6);
+      s.scale.setScalar(Math.max(0.1, 1 - t * 1.3));
+    }
 
     for (const d of debris) {
-      d.position.addScaledVector(d.userData.velocity, 1 / 60);
-      d.userData.velocity.y -= 9.8 / 60;
-      d.rotation.x += d.userData.rotSpeed.x / 60;
-      d.rotation.y += d.userData.rotSpeed.y / 60;
-      d.rotation.z += d.userData.rotSpeed.z / 60;
+      d.position.addScaledVector(d.userData.velocity, dt);
+      d.userData.velocity.y -= 15 * dt;
+      d.rotation.x += d.userData.rotSpeed.x * dt;
+      d.rotation.y += d.userData.rotSpeed.y * dt;
+      d.rotation.z += d.userData.rotSpeed.z * dt;
       if (d.position.y < 0) {
         d.position.y = 0;
-        d.userData.velocity.y *= -0.25;
-        d.userData.velocity.x *= 0.65;
-        d.userData.velocity.z *= 0.65;
+        d.userData.velocity.y *= -0.3;
+        d.userData.velocity.x *= 0.7;
+        d.userData.velocity.z *= 0.7;
       }
     }
+
+    light.intensity = Math.max(0, (12 * intensity) * (1 - t * 2.8));
+
+    smoke.scale.setScalar(1 + t * 3.2 * intensity);
+    smokeMat.opacity = Math.max(0, 0.55 * (1 - t * 1.1));
+
     animId = requestAnimationFrame(loop);
   };
+
   animId = requestAnimationFrame(loop);
 
   return () => {
     if (animId) cancelAnimationFrame(animId);
     scene.remove(group);
   };
+}
+
+// =========================================================
+// COLLAPSE (when a rocket cannot fly)
+// =========================================================
+// Empty wireframes vanish. Real hardware falls. Explosive parts detonate
+// on ground contact. Ground collision uses the rotated bounding box, so
+// nothing clips through the surface.
+export function collapseRocket(rocketGroup, supportGroup, scene) {
+  const segments = rocketGroup.userData.segments || [];
+  if (segments.length === 0) return;
+
+  rocketGroup.updateMatrixWorld(true);
+
+  const pieces = [];
+  const placeholders = [];
+
+  for (const seg of segments) {
+    let slotMesh = null;
+    for (const child of seg.children) {
+      if (child.userData && (child.userData.isPart || child.userData.isPlaceholder)) {
+        slotMesh = child;
+        break;
+      }
+    }
+
+    if (!slotMesh || slotMesh.userData.isPlaceholder) {
+      placeholders.push(seg);
+      continue;
+    }
+
+    const h = seg.userData.height || slotMesh.userData.height || 1;
+    const d = slotMesh.userData.diameter || h;
+
+    // Re-center the mesh on the segment origin so rotation happens around
+    // the geometric center rather than the base.
+    slotMesh.position.y = 0;
+
+    const wp = new THREE.Vector3();
+    seg.getWorldPosition(wp);
+    wp.y += h / 2;
+
+    pieces.push({
+      seg,
+      position: wp.clone(),
+      velocity: new THREE.Vector3(
+        (Math.random() - 0.5) * 2.0,
+        -0.3 - Math.random() * 0.5,
+        (Math.random() - 0.5) * 2.0
+      ),
+      rotation: new THREE.Euler(0, 0, 0),
+      rotVel: new THREE.Vector3(
+        (Math.random() - 0.5) * 2.5,
+        (Math.random() - 0.5) * 2.5,
+        (Math.random() - 0.5) * 2.5
+      ),
+      halfX: d / 2,
+      halfY: h / 2,
+      halfZ: d / 2,
+      explosive: EXPLOSIVE_SLOTS.has(seg.userData.slot),
+      exploded: false,
+    });
+  }
+
+  // Empty wireframes just disappear.
+  for (const p of placeholders) {
+    if (p.parent) p.parent.remove(p);
+    p.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+  }
+
+  if (pieces.length === 0) return;
+
+  // Detach pieces from the stack so upper segments don't follow lower ones.
+  for (const piece of pieces) {
+    const seg = piece.seg;
+
+    const toRemove = [];
+    seg.children.forEach(child => {
+      if (child.userData && child.userData.isNextParent) toRemove.push(child);
+    });
+    toRemove.forEach(c => seg.remove(c));
+
+    if (seg.parent) seg.parent.remove(seg);
+
+    seg.position.copy(piece.position);
+    seg.rotation.set(0, 0, 0);
+    rocketGroup.add(seg);
+  }
+
+  const rotMatrix = new THREE.Matrix4();
+  let lastTime = performance.now();
+  const start = performance.now();
+  const DURATION = 6000;
+
+  function loop() {
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+
+    for (const piece of pieces) {
+      if (piece.exploded) continue;
+
+      piece.velocity.y -= 9.8 * dt;
+      piece.position.addScaledVector(piece.velocity, dt);
+      piece.rotation.x += piece.rotVel.x * dt;
+      piece.rotation.y += piece.rotVel.y * dt;
+      piece.rotation.z += piece.rotVel.z * dt;
+
+      piece.seg.position.copy(piece.position);
+      piece.seg.rotation.copy(piece.rotation);
+
+      // World Y extent of the rotated bounding box. Column-major storage
+      // means the second row of the rotation matrix is e[1], e[5], e[9].
+      rotMatrix.makeRotationFromEuler(piece.rotation);
+      const e = rotMatrix.elements;
+      const extentY =
+        Math.abs(e[1]) * piece.halfX +
+        Math.abs(e[5]) * piece.halfY +
+        Math.abs(e[9]) * piece.halfZ;
+
+      const minY = piece.position.y - extentY;
+
+      if (minY < 0) {
+        piece.position.y -= minY;
+        piece.seg.position.copy(piece.position);
+
+        if (piece.explosive) {
+          piece.exploded = true;
+          piece.seg.visible = false;
+
+          const worldPos = new THREE.Vector3(
+            rocketGroup.position.x + piece.position.x,
+            rocketGroup.position.y + piece.position.y,
+            rocketGroup.position.z + piece.position.z
+          );
+
+          const intensity = Math.min(1.6, 0.6 + piece.halfY * 0.25);
+          spawnExplosion(scene, worldPos, intensity);
+        } else {
+          piece.velocity.y *= -0.28;
+          piece.velocity.x *= 0.6;
+          piece.velocity.z *= 0.6;
+          piece.rotVel.multiplyScalar(0.6);
+
+          if (Math.abs(piece.velocity.y) < 0.5) {
+            piece.velocity.set(0, 0, 0);
+            piece.rotVel.set(0, 0, 0);
+          }
+        }
+      }
+    }
+
+    if (now - start < DURATION) requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
 }
 
 // =========================================================
@@ -554,70 +801,50 @@ export function playLaunchSequence({
   abortLaunch();
 
   const totalHeight = rocketGroup.userData.totalHeight || 5;
-  const quality = computeFlightQuality(installed, template);
-  const q = quality.quality;
 
-  const hasEngine = !!quality.bySlot.engine_cluster;
-  const hasThrust = !!quality.bySlot.thrust_structure;
-  const hasFuel   = !!quality.bySlot.fuel_tank;
-  const hasOx     = !!quality.bySlot.oxidizer_tank;
+  const bySlot = {};
+  for (const p of installed) bySlot[p.slot] = p;
+  const has = (slot) => !!bySlot[slot];
 
-  // ---- Failure classification ----
-  // Priority order (first match wins):
-  // 1. No engine  → nothing happens at all
-  // 2. Engine + no thrust structure → explosion at ignition
-  // 3. Engine + thrust + no fuel and/or no oxidizer → small sputter, then small explosion
-  // 4. TWR < 1.0 → engine fires, rocket strains, then explosion
-  // 5. Otherwise → full flight
-  let failure = null;
-  if (!hasEngine) {
-    failure = { type: 'no_engine', at: 3000, small: true,
-      reason: 'No engine installed. The vehicle never ignited.' };
-  } else if (!hasThrust) {
-    failure = { type: 'no_thrust', at: 900, small: false,
-      reason: 'No thrust structure. Engine force ripped through the tank base and detonated the propellant.' };
-  } else if (!hasFuel && !hasOx) {
-    failure = { type: 'no_propellant', at: 1800, small: true,
-      reason: 'Engine ignited into an empty feed system. Residual propellant in the lines burned through the chamber.' };
-  } else if (!hasFuel) {
-    failure = { type: 'no_fuel', at: 1800, small: true,
-      reason: 'No fuel tank. Engine ran oxidizer-rich and burned through the combustion chamber.' };
-  } else if (!hasOx) {
-    failure = { type: 'no_oxidizer', at: 1800, small: true,
-      reason: 'No oxidizer tank. The engine could not sustain combustion and detonated on the pad.' };
-  } else if (quality.twr < 1.0) {
-    failure = { type: 'low_thrust', at: 3200, small: false,
-      reason: 'Thrust-to-weight below 1.0. The vehicle could not lift off and the engine consumed the pad.' };
+  const hasEngine = has('engine_cluster');
+  const hasFuel = has('fuel_tank');
+  const hasOx = has('oxidizer_tank');
+  const hasThrust = has('thrust_structure');
+
+  let twr = 0;
+  if (hasEngine) {
+    const engine = bySlot.engine_cluster;
+    const mass = installed.reduce((s, p) => s + (p.mass_kg || 0), 0)
+               + (template.baseStructuralMassKg || 0);
+    twr = (engine.thrust_kN * 1000) / (mass * 9.81);
   }
 
-  // ---- Successful flight altitues ----
-  // Only reached if failure === null.
-  const fullQuality = !failure && q >= 0.7;
-  let peakHeight;
-  if (q >= 0.85)      peakHeight = totalHeight * 0.9;
-  else if (q >= 0.7)  peakHeight = totalHeight * 0.7;
-  else                peakHeight = totalHeight * 0.45;
+  let mode = 'launch';
+  let reason = '';
+
+  if (!hasEngine) {
+    mode = 'inert';
+    reason = 'No engine installed. The vehicle cannot ignite.';
+  } else if (!hasFuel || !hasOx) {
+    mode = 'dry';
+    reason = 'Engine has no propellant. It cannot fire.';
+  } else if (!hasThrust) {
+    mode = 'rip';
+    reason = 'No thrust structure. Engine force will tear the tank base open.';
+  } else if (twr < 1.0) {
+    mode = 'stuck';
+    reason = 'Thrust-to-weight below 1.0. The vehicle cannot lift off.';
+  }
+
+  const q = Math.min(1, Math.max(0, (twr - 1.0) / 0.5));
+  const peakHeight = totalHeight * (0.4 + q * 0.5);
 
   const driftDirX = Math.random() > 0.5 ? 1 : -1;
   const driftDirZ = Math.random() > 0.5 ? 1 : -1;
-  const driftAmount = fullQuality ? 0 : (1 - q) * totalHeight * 0.4;
-  const tiltAmount = q < 0.6 ? (1 - q) * 0.4 : 0;
+  const driftAmount = q < 0.6 ? (1 - q) * totalHeight * 0.4 : 0;
+  const tiltAmount = q < 0.6 ? (1 - q) * 0.3 : 0;
 
-  // ---- Timeline ----
-  const CLAMP_RETRACT_MS = 600;
-  const ASCENT_MS = 4000;
-  const HOVER_MS = 600;
-  const DESCENT_MS = 4000;
-  const TOUCHDOWN_MS = 800;     // settle on pad, cut flames
-  const HOLD_MS = 400;          // brief pause before clamps come back
-  const REENGAGE_MS = 1300;     // clamps close
-  const FINAL_MS = 300;
-
-  const TOTAL_SUCCESS_MS =
-    CLAMP_RETRACT_MS + ASCENT_MS + HOVER_MS + DESCENT_MS + TOUCHDOWN_MS
-    + HOLD_MS + REENGAGE_MS + FINAL_MS;
-
-  const TOTAL_MS = failure ? failure.at + 1400 : TOTAL_SUCCESS_MS;
+  const CLAMP_MS = 600;
 
   resetClamps(supportGroup);
   hideAllFlames(rocketGroup);
@@ -628,98 +855,145 @@ export function playLaunchSequence({
   const startTime = performance.now();
   let explosionSpawned = false;
   let explosionRef = null;
+  let collapseTriggered = false;
 
   const loop = () => {
     const elapsed = performance.now() - startTime;
 
-    // ---- FAILURE ----
-    if (failure) {
-      // Explosion trigger
-      if (elapsed >= failure.at && !explosionSpawned) {
-        explosionSpawned = true;
-        const worldPos = new THREE.Vector3();
-        rocketGroup.getWorldPosition(worldPos);
-        const intensity = failure.small ? 0.55 : (template.sizeClassMax === 'S' ? 0.7 : template.sizeClassMax === 'M' ? 1.0 : 1.4);
-        explosionRef = spawnExplosion(scene, worldPos, intensity);
-        rocketGroup.visible = false;
-        hideAllFlames(rocketGroup);
-      }
-
-      // Finish
-      if (elapsed >= failure.at + 1400) {
-        if (explosionRef) explosionRef();
+    // -------- INERT: no engine --------
+    if (mode === 'inert') {
+      if (elapsed < CLAMP_MS) {
+        retractClamps(supportGroup, elapsed / CLAMP_MS);
+        onPhase('clamps');
+      } else if (elapsed < 1800) {
+        retractClamps(supportGroup, 1);
+        onPhase('silent');
+      } else if (!collapseTriggered) {
+        collapseTriggered = true;
+        collapseRocket(rocketGroup, supportGroup, scene);
+        onPhase('collapsed');
+      } else if (elapsed > 5200) {
         rocketGroup.visible = true;
-        rocketGroup.position.set(0, 0, 0);
-        rocketGroup.rotation.set(0, 0, 0);
-        resetClamps(supportGroup);
-        onComplete(false, {
-          quality: q, twr: quality.twr,
-          peakHeight: 0, landClean: false,
-          reason: failure.reason,
-          failureType: failure.type,
-        });
+        onComplete(false, { quality: 0, twr, peakHeight: 0, landClean: false, reason });
         activeLaunchId = null;
         return;
-      }
-
-      // Pre-explosion behavior
-      if (elapsed < CLAMP_RETRACT_MS) {
-        retractClamps(supportGroup, elapsed / CLAMP_RETRACT_MS);
-        onPhase('clamps');
-      } else if (elapsed < failure.at) {
-        // Clamps fully retracted. Behavior depends on failure type.
-        if (failure.type === 'no_engine') {
-          // Nothing happens. Rocket sits.
-          onPhase('silent');
-        } else if (failure.type === 'no_thrust') {
-          // Engines fire → immediate explosion
-          const flames = showAllFlames(rocketGroup, 1.0);
-          for (const f of flames) {
-            const flick = 0.9 + Math.random() * 0.2;
-            f.scale.set(flick, flick, flick);
-          }
-          onPhase('ignition');
-        } else if (failure.type === 'no_propellant' || failure.type === 'no_fuel' || failure.type === 'no_oxidizer') {
-          // Weak sputtering. Occasional flashes.
-          if (Math.random() > 0.6) {
-            const flames = showAllFlames(rocketGroup, 0.4);
-            for (const f of flames) {
-              const flick = 0.5 + Math.random() * 0.6;
-              f.scale.set(flick * 0.5, flick * 0.4, flick * 0.5);
-            }
-          } else {
-            hideAllFlames(rocketGroup);
-          }
-          rocketGroup.position.x = Math.sin(elapsed * 0.1) * 0.03;
-          rocketGroup.position.z = Math.cos(elapsed * 0.11) * 0.03;
-          onPhase('sputtering');
-        } else if (failure.type === 'low_thrust') {
-          // Full flames but no lift
-          const flames = showAllFlames(rocketGroup, 1.0);
-          for (const f of flames) {
-            const flick = 0.9 + Math.random() * 0.2;
-            f.scale.set(flick, flick, flick);
-          }
-          rocketGroup.position.x = Math.sin(elapsed * 0.08) * 0.08;
-          rocketGroup.position.z = Math.cos(elapsed * 0.09) * 0.08;
-          onPhase('straining');
-        }
       }
       activeLaunchId = requestAnimationFrame(loop);
       return;
     }
 
-    // ---- SUCCESS FLIGHT ----
-    // Phase 1: Clamps retract
-    if (elapsed < CLAMP_RETRACT_MS) {
-      retractClamps(supportGroup, elapsed / CLAMP_RETRACT_MS);
-      onPhase('clamps');
+    // -------- DRY: engine but no propellant --------
+    if (mode === 'dry') {
+      if (elapsed < CLAMP_MS) {
+        retractClamps(supportGroup, elapsed / CLAMP_MS);
+        onPhase('clamps');
+      } else if (elapsed < 2200) {
+        retractClamps(supportGroup, 1);
+        if (Math.random() > 0.65) {
+          const flames = showAllFlames(rocketGroup);
+          for (const f of flames) {
+            const s = 0.25 + Math.random() * 0.3;
+            f.scale.set(s, s * 0.5, s);
+          }
+        } else {
+          hideAllFlames(rocketGroup);
+        }
+        rocketGroup.position.x = Math.sin(elapsed * 0.05) * 0.04;
+        rocketGroup.position.z = Math.cos(elapsed * 0.06) * 0.04;
+        onPhase('sputtering');
+      } else if (!collapseTriggered) {
+        hideAllFlames(rocketGroup);
+        collapseTriggered = true;
+        collapseRocket(rocketGroup, supportGroup, scene);
+        onPhase('collapsed');
+      } else if (elapsed > 5600) {
+        rocketGroup.visible = true;
+        onComplete(false, { quality: 0, twr, peakHeight: 0, landClean: false, reason });
+        activeLaunchId = null;
+        return;
+      }
+      activeLaunchId = requestAnimationFrame(loop);
+      return;
     }
-    // Phase 2: Ascent
-    else if (elapsed < CLAMP_RETRACT_MS + ASCENT_MS) {
+
+    // -------- RIP: engine + propellant, no thrust structure --------
+    if (mode === 'rip') {
+      if (elapsed < CLAMP_MS) {
+        retractClamps(supportGroup, elapsed / CLAMP_MS);
+        onPhase('clamps');
+      } else if (elapsed < 1400) {
+        retractClamps(supportGroup, 1);
+        const flames = showAllFlames(rocketGroup);
+        for (const f of flames) {
+          const flick = 0.9 + Math.random() * 0.2;
+          f.scale.set(flick, flick, flick);
+        }
+        rocketGroup.position.x = Math.sin(elapsed * 0.15) * 0.05;
+        rocketGroup.position.z = Math.cos(elapsed * 0.15) * 0.05;
+        onPhase('ignition');
+      } else if (!explosionSpawned) {
+        explosionSpawned = true;
+        const worldPos = new THREE.Vector3();
+        rocketGroup.getWorldPosition(worldPos);
+        const intensity = template.sizeClassMax === 'S' ? 0.6
+                        : template.sizeClassMax === 'M' ? 1.0
+                        : template.sizeClassMax === 'L' ? 1.4 : 1.8;
+        explosionRef = spawnExplosion(scene, worldPos, intensity);
+        rocketGroup.visible = false;
+        hideAllFlames(rocketGroup);
+        onPhase('exploded');
+      } else if (elapsed > 4200) {
+        if (explosionRef) explosionRef();
+        rocketGroup.visible = true;
+        rocketGroup.position.set(0, 0, 0);
+        rocketGroup.rotation.set(0, 0, 0);
+        resetClamps(supportGroup);
+        onComplete(false, { quality: 0, twr, peakHeight: 0, landClean: false, reason });
+        activeLaunchId = null;
+        return;
+      }
+      activeLaunchId = requestAnimationFrame(loop);
+      return;
+    }
+
+    // -------- STUCK: full fire but TWR < 1 --------
+    if (mode === 'stuck') {
+      if (elapsed < CLAMP_MS) {
+        retractClamps(supportGroup, elapsed / CLAMP_MS);
+        onPhase('clamps');
+      } else if (elapsed < 2600) {
+        retractClamps(supportGroup, 1);
+        const flames = showAllFlames(rocketGroup);
+        for (const f of flames) {
+          const flick = 0.9 + Math.random() * 0.2;
+          f.scale.set(flick, flick, flick);
+        }
+        rocketGroup.position.x = Math.sin(elapsed * 0.1) * 0.1;
+        rocketGroup.position.z = Math.cos(elapsed * 0.12) * 0.1;
+        onPhase('straining');
+      } else if (!collapseTriggered) {
+        hideAllFlames(rocketGroup);
+        collapseTriggered = true;
+        collapseRocket(rocketGroup, supportGroup, scene);
+        onPhase('collapsed');
+      } else if (elapsed > 7000) {
+        rocketGroup.visible = true;
+        onComplete(false, { quality: 0, twr, peakHeight: 0, landClean: false, reason });
+        activeLaunchId = null;
+        return;
+      }
+      activeLaunchId = requestAnimationFrame(loop);
+      return;
+    }
+
+    // -------- NORMAL LAUNCH --------
+    if (elapsed < CLAMP_MS) {
+      retractClamps(supportGroup, elapsed / CLAMP_MS);
+      onPhase('clamps');
+    } else if (elapsed < CLAMP_MS + 4000) {
       retractClamps(supportGroup, 1);
-      const p = (elapsed - CLAMP_RETRACT_MS) / ASCENT_MS;
-      const flames = showAllFlames(rocketGroup, 1.0);
+      const p = (elapsed - CLAMP_MS) / 4000;
+      const flames = showAllFlames(rocketGroup);
       for (const f of flames) {
         const flick = 0.85 + Math.random() * 0.3;
         f.scale.set(flick, flick * 0.95, flick);
@@ -731,28 +1005,21 @@ export function playLaunchSequence({
       rocketGroup.rotation.z = tiltAmount * driftDirX * p * 0.5;
       rocketGroup.rotation.x = tiltAmount * driftDirZ * p * 0.5;
       onPhase('ascent');
-    }
-    // Phase 3: Hover
-    else if (elapsed < CLAMP_RETRACT_MS + ASCENT_MS + HOVER_MS) {
-      const flames = showAllFlames(rocketGroup, 1.0);
+    } else if (elapsed < CLAMP_MS + 4600) {
+      const flames = showAllFlames(rocketGroup);
       for (const f of flames) {
         const flick = 0.85 + Math.random() * 0.3;
         f.scale.set(flick, flick * 0.95, flick);
       }
       rocketGroup.position.set(driftAmount * driftDirX, peakHeight, driftAmount * driftDirZ);
-      rocketGroup.rotation.z = tiltAmount * driftDirX * 0.5;
-      rocketGroup.rotation.x = tiltAmount * driftDirZ * 0.5;
       onPhase('hover');
-    }
-    // Phase 4: Descent
-    else if (elapsed < CLAMP_RETRACT_MS + ASCENT_MS + HOVER_MS + DESCENT_MS) {
-      const p = (elapsed - CLAMP_RETRACT_MS - ASCENT_MS - HOVER_MS) / DESCENT_MS;
-      const flames = showAllFlames(rocketGroup, 1.0);
+    } else if (elapsed < CLAMP_MS + 4600 + 4000) {
+      const p = (elapsed - CLAMP_MS - 4600) / 4000;
+      const flames = showAllFlames(rocketGroup);
       for (const f of flames) {
         const flick = 0.85 + Math.random() * 0.3;
         f.scale.set(flick, flick * 0.95, flick);
       }
-      // Always return to origin if fullQuality (no drift in the first place)
       const y = peakHeight * (1 - easeIn(p));
       const x = driftAmount * driftDirX * (1 - easeIn(p));
       const z = driftAmount * driftDirZ * (1 - easeIn(p));
@@ -760,53 +1027,35 @@ export function playLaunchSequence({
       rocketGroup.rotation.z = tiltAmount * driftDirX * 0.5 * (1 - p);
       rocketGroup.rotation.x = tiltAmount * driftDirZ * 0.5 * (1 - p);
       onPhase('descent');
-    }
-    // Phase 5: Touchdown (settle on pad, cut flames)
-    else if (elapsed < CLAMP_RETRACT_MS + ASCENT_MS + HOVER_MS + DESCENT_MS + TOUCHDOWN_MS) {
-      const p = (elapsed - CLAMP_RETRACT_MS - ASCENT_MS - HOVER_MS - DESCENT_MS) / TOUCHDOWN_MS;
-      // Cut flames over first half
+    } else if (elapsed < CLAMP_MS + 8600 + 800) {
+      const p = (elapsed - CLAMP_MS - 8600) / 800;
       if (p < 0.5) {
-        const flames = showAllFlames(rocketGroup, 1 - p * 2);
+        const flames = showAllFlames(rocketGroup);
         for (const f of flames) {
-          const flick = 0.6 + Math.random() * 0.3;
-          const sf = (1 - p * 2);
-          f.scale.set(flick * sf, flick * sf * 0.7, flick * sf);
+          const flick = 0.5 + Math.random() * 0.3;
+          const sf = 1 - p * 2;
+          f.scale.set(flick * sf, flick * sf * 0.6, flick * sf);
         }
       } else {
         hideAllFlames(rocketGroup);
       }
-      // Exact origin
       rocketGroup.position.set(0, 0, 0);
       rocketGroup.rotation.set(0, 0, 0);
       onPhase('touchdown');
-    }
-    // Phase 6: Brief hold
-    else if (elapsed < CLAMP_RETRACT_MS + ASCENT_MS + HOVER_MS + DESCENT_MS + TOUCHDOWN_MS + HOLD_MS) {
+    } else if (elapsed < CLAMP_MS + 8600 + 800 + 400) {
       rocketGroup.position.set(0, 0, 0);
       rocketGroup.rotation.set(0, 0, 0);
-      hideAllFlames(rocketGroup);
       onPhase('landed');
-    }
-    // Phase 7: Re-engage clamps
-    else if (elapsed < CLAMP_RETRACT_MS + ASCENT_MS + HOVER_MS + DESCENT_MS + TOUCHDOWN_MS + HOLD_MS + REENGAGE_MS) {
-      const p = (elapsed - CLAMP_RETRACT_MS - ASCENT_MS - HOVER_MS - DESCENT_MS - TOUCHDOWN_MS - HOLD_MS) / REENGAGE_MS;
+    } else if (elapsed < CLAMP_MS + 8600 + 800 + 400 + 1300) {
+      const p = (elapsed - CLAMP_MS - 8600 - 800 - 400) / 1300;
       reengageClamps(supportGroup, p);
-      rocketGroup.position.set(0, 0, 0);
-      rocketGroup.rotation.set(0, 0, 0);
       onPhase('recovering');
-    }
-    // Phase 8: Final
-    else {
+    } else {
       reengageClamps(supportGroup, 1);
       rocketGroup.position.set(0, 0, 0);
       rocketGroup.rotation.set(0, 0, 0);
       hideAllFlames(rocketGroup);
-
-      onComplete(true, {
-        quality: q, twr: quality.twr,
-        peakHeight, landClean: true,
-        reason: 'Clean flight. Vehicle returned to the pad and clamps re-engaged.',
-      });
+      onComplete(true, { quality: 1, twr, peakHeight, landClean: true, reason: 'Clean flight.' });
       activeLaunchId = null;
       return;
     }

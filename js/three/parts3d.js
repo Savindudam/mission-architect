@@ -3463,53 +3463,57 @@ export function makeNoseCone(h, d, partId) {
 function makeFlameGroup(exitR, bellHeight) {
   const g = new THREE.Group();
 
-  const outer = new THREE.Mesh(
-    new THREE.ConeGeometry(exitR * 1.08, bellHeight * 0.95, 24, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0xff7a1a,
-      transparent: true,
-      opacity: 0.7,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    })
-  );
-  outer.rotation.x = Math.PI;
-  outer.position.y = -bellHeight * 0.47;
-  g.add(outer);
+  // Five layers, from outer dark orange to white-hot core.
+  // Each one is a cone with additive blending so they glow together.
+  const layers = [
+    { scale: 1.15, length: 1.00, color: 0xd14010, opacity: 0.35 },
+    { scale: 1.00, length: 0.92, color: 0xff6a1a, opacity: 0.55 },
+    { scale: 0.85, length: 0.80, color: 0xffaa33, opacity: 0.72 },
+    { scale: 0.65, length: 0.65, color: 0xffdd66, opacity: 0.85 },
+    { scale: 0.40, length: 0.50, color: 0xffffff, opacity: 0.95 },
+  ];
 
-  const mid = new THREE.Mesh(
-    new THREE.ConeGeometry(exitR * 0.72, bellHeight * 0.75, 24, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0xffcc44,
+  const meshes = [];
+  for (const l of layers) {
+    const geo = new THREE.ConeGeometry(exitR * l.scale, bellHeight * l.length, 24, 1, true);
+    const mat = new THREE.MeshBasicMaterial({
+      color: l.color,
       transparent: true,
-      opacity: 0.85,
+      opacity: l.opacity,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
-    })
-  );
-  mid.rotation.x = Math.PI;
-  mid.position.y = -bellHeight * 0.37;
-  g.add(mid);
+    });
+    const cone = new THREE.Mesh(geo, mat);
+    cone.rotation.x = Math.PI;
+    cone.position.y = -bellHeight * l.length * 0.5;
+    g.add(cone);
+    meshes.push({ mesh: cone, baseOpacity: l.opacity });
+  }
 
-  const core = new THREE.Mesh(
-    new THREE.ConeGeometry(exitR * 0.42, bellHeight * 0.55, 24, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.95,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    })
-  );
-  core.rotation.x = Math.PI;
-  core.position.y = -bellHeight * 0.27;
-  g.add(core);
+  // Ground glow — soft orange circle under the flame
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0xff8822,
+    transparent: true,
+    opacity: 0.5,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(exitR * 2.4, 32), glowMat);
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = -bellHeight * 1.05;
+  g.add(glow);
+
+  // Point light for the glow on surrounding geometry
+  const light = new THREE.PointLight(0xff8822, 0, 12);
+  light.position.y = -bellHeight * 0.5;
+  g.add(light);
 
   g.visible = false;
-  g.userData.meshes = [outer, mid, core];
+  g.userData.meshes = meshes;
+  g.userData.glow = glow;
+  g.userData.light = light;
+  g.userData.baseLightIntensity = 3;
   return g;
 }
 
