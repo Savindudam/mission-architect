@@ -142,6 +142,7 @@ export function buildRocket(rocketGroup, template, installedParts) {
     const seg = new THREE.Group();
     seg.userData.slot = slot;
     seg.userData.height = h;
+    seg.userData.diameter = d;
     parent.add(seg);
 
     slotMesh.position.y = h / 2;
@@ -156,8 +157,10 @@ export function buildRocket(rocketGroup, template, installedParts) {
     nextParent.position.y = h;
     nextParent.userData.isNextParent = true;
     seg.add(nextParent);
+    seg.userData.nextParent = nextParent;
     parent = nextParent;
     segments.push(seg);
+
     totalHeight += h;
   }
 
@@ -373,18 +376,16 @@ export function computeFlightQuality(installed, template) {
   return { quality, twr, flexRatio, issues, verdict, bySlot };
 }
 
-// =========================================================
 // FLAMES
-// =========================================================
 function makeFlameGroup(exitR, bellHeight) {
   const g = new THREE.Group();
 
   const layers = [
-    { scale: 1.15, length: 1.00, color: 0xd14010, opacity: 0.35 },
-    { scale: 1.00, length: 0.92, color: 0xff6a1a, opacity: 0.55 },
-    { scale: 0.85, length: 0.80, color: 0xffaa33, opacity: 0.72 },
-    { scale: 0.65, length: 0.65, color: 0xffdd66, opacity: 0.85 },
-    { scale: 0.40, length: 0.50, color: 0xffffff, opacity: 0.95 },
+    { scale: 1.15, length: 1.00, color: 0xd14010, opacity: 0.32 },
+    { scale: 1.00, length: 0.92, color: 0xff6a1a, opacity: 0.48 },
+    { scale: 0.85, length: 0.80, color: 0xffaa33, opacity: 0.60 },
+    { scale: 0.65, length: 0.65, color: 0xffdd66, opacity: 0.62 },
+    { scale: 0.40, length: 0.50, color: 0xffeedd, opacity: 0.42 },
   ];
 
   const meshes = [];
@@ -408,7 +409,7 @@ function makeFlameGroup(exitR, bellHeight) {
   const glowMat = new THREE.MeshBasicMaterial({
     color: 0xff8822,
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.35,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -425,10 +426,283 @@ function makeFlameGroup(exitR, bellHeight) {
   g.userData.meshes = meshes;
   g.userData.glow = glow;
   g.userData.light = light;
-  g.userData.baseLightIntensity = 3;
+  g.userData.baseGlowOpacity = 0.35;
+  g.userData.baseLightIntensity = 2;
   return g;
 }
+// =========================================================
+// CONTRAIL — glowing trail that follows the rocket
+// =========================================================
+function makeContrailTexture() {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 64;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0,   'rgba(255, 255, 255, 1.0)');
+  g.addColorStop(0.3, 'rgba(255, 230, 200, 0.7)');
+  g.addColorStop(0.6, 'rgba(220, 190, 160, 0.25)');
+  g.addColorStop(1,   'rgba(200, 180, 160, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
 
+export function createContrail(scene, maxParticles = 500) {
+  const MAX = maxParticles;
+  const LIFETIME = 5.5; // seconds
+
+  const positions = new Float32Array(MAX * 3);
+  const sizes = new Float32Array(MAX);
+  const alphas = new Float32Array(MAX);
+  const ages = new Float32Array(MAX).fill(999);
+  const vels = new Float32Array(MAX * 3);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+  geo.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
+
+  const mat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      tex: { value: makeContrailTexture() },
+    },
+    vertexShader: `
+      attribute float size;
+      attribute float alpha;
+      varying float vAlpha;
+      void main() {
+        vAlpha = alpha;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = size * (400.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D tex;
+      varying float vAlpha;
+      void main() {
+        vec4 t = texture2D(tex, gl_PointCoord);
+        gl_FragColor = vec4(t.rgb, t.a * vAlpha);
+      }
+    `,
+  });
+
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  scene.add(points);
+
+  let cursor = 0;
+
+  return {
+    points,
+
+    spawn(x, y, z, vx = 0, vy = 0, vz = 0, sizeHint = 1) {
+      const i = cursor;
+      positions[i * 3 + 0] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = z;
+      vels[i * 3 + 0] = vx;
+      vels[i * 3 + 1] = vy;
+      vels[i * 3 + 2] = vz;
+      sizes[i] = sizeHint;
+      alphas[i] = 0.9;
+      ages[i] = 0;
+      cursor = (cursor + 1) % MAX;
+      geo.attributes.position.needsUpdate = true;
+    },
+
+    update(dt) {
+      for (let i = 0; i < MAX; i++) {
+        if (ages[i] >= LIFETIME) {
+          alphas[i] = 0;
+          continue;
+        }
+        ages[i] += dt;
+        positions[i * 3 + 0] += vels[i * 3 + 0] * dt;
+        positions[i * 3 + 1] += vels[i * 3 + 1] * dt;
+        positions[i * 3 + 2] += vels[i * 3 + 2] * dt;
+        const k = 1 - ages[i] / LIFETIME;
+        alphas[i] = k * k * 0.9;
+        sizes[i] += dt * 6;
+      }
+      geo.attributes.position.needsUpdate = true;
+      geo.attributes.alpha.needsUpdate = true;
+      geo.attributes.size.needsUpdate = true;
+    },
+
+    dispose() {
+      scene.remove(points);
+      geo.dispose();
+      mat.dispose();
+      if (mat.uniforms.tex.value) mat.uniforms.tex.value.dispose();
+    },
+  };
+}
+// =========================================================
+// CLOUD LAYER — horizontal cloud plane the rocket flies through
+// =========================================================
+function makeCloudTexture() {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 1024;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Big soft noise blobs — clouds
+  for (let i = 0; i < 300; i++) {
+    const x = Math.random() * 1024;
+    const y = Math.random() * 1024;
+    const r = 30 + Math.random() * 180;
+    const a = 0.08 + Math.random() * 0.25;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0,   `rgba(255, 255, 255, ${a})`);
+    g.addColorStop(0.5, `rgba(240, 240, 250, ${a * 0.4})`);
+    g.addColorStop(1,   'rgba(240, 240, 250, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  // Denser cores
+  for (let i = 0; i < 80; i++) {
+    const x = Math.random() * 1024;
+    const y = Math.random() * 1024;
+    const r = 20 + Math.random() * 60;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
+    g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 3);
+  return tex;
+}
+
+export function createCloudLayer(scene, altitudeY) {
+  const tex = makeCloudTexture();
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const geo = new THREE.PlaneGeometry(4000, 4000);
+  geo.rotateX(-Math.PI / 2);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = altitudeY;
+  mesh.renderOrder = 5;
+  mesh.visible = false;
+  scene.add(mesh);
+
+  let baseOpacity = 0;
+
+  return {
+    mesh,
+    setOpacity(v) {
+      baseOpacity = v;
+      mat.opacity = v;
+      mesh.visible = v > 0.01;
+    },
+    get opacity() { return baseOpacity; },
+    spin(dt) {
+      // slight rotation to sell motion
+      mesh.rotation.y += dt * 0.008;
+    },
+    dispose() {
+      scene.remove(mesh);
+      geo.dispose();
+      mat.dispose();
+      tex.dispose();
+    },
+  };
+}
+// =========================================================
+// STARFIELD — camera-locked star points for the black-sky shots
+// =========================================================
+export function createStarfield(scene, count = 600) {
+  const positions = new Float32Array(count * 3);
+  const sizes = new Float32Array(count);
+  const phases = new Float32Array(count);
+
+  for (let i = 0; i < count; i++) {
+    // random direction on a unit sphere
+    const u = Math.random();
+    const v = Math.random();
+    const theta = u * Math.PI * 2;
+    const phi = Math.acos(2 * v - 1);
+    const r = 700;
+    positions[i * 3 + 0] = Math.sin(phi) * Math.cos(theta) * r;
+    positions[i * 3 + 1] = Math.sin(phi) * Math.sin(theta) * r;
+    positions[i * 3 + 2] = Math.cos(phi) * r;
+    sizes[i] = 0.8 + Math.random() * 2.2;
+    phases[i] = Math.random() * Math.PI * 2;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+  geo.setAttribute('phase', new THREE.BufferAttribute(phases, 1));
+
+  const mat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      time: { value: 0 },
+      globalAlpha: { value: 0 },
+    },
+    vertexShader: `
+      attribute float size;
+      attribute float phase;
+      uniform float time;
+      varying float vSize;
+      void main() {
+        vSize = size;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = size * (400.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform float globalAlpha;
+      uniform float time;
+      varying float vSize;
+      void main() {
+        vec2 d = gl_PointCoord - vec2(0.5);
+        float r = length(d);
+        if (r > 0.5) discard;
+        float a = (1.0 - r * 2.0);
+        a = pow(a, 1.5);
+        gl_FragColor = vec4(1.0, 0.98, 0.92, a * globalAlpha);
+      }
+    `,
+  });
+
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  scene.add(points);
+
+  return {
+    mesh: points,
+    setAlpha(v) { mat.uniforms.globalAlpha.value = v; },
+    update(camPos, t) {
+      points.position.copy(camPos);
+      mat.uniforms.time.value = t;
+    },
+    dispose() {
+      scene.remove(points);
+      geo.dispose();
+      mat.dispose();
+    },
+  };
+}
 export function hideAllFlames(rocketGroup) {
   rocketGroup.traverse(obj => {
     if (obj.userData && obj.userData.flame) {
@@ -448,6 +722,26 @@ export function showAllFlames(rocketGroup, scaleFactor = 1.0) {
     }
   });
   return flames;
+}
+export function setFlameOpacity(rocketGroup, opacity) {
+  const a = Math.max(0, Math.min(1, opacity));
+  rocketGroup.traverse(obj => {
+    if (obj.userData && obj.userData.flame) {
+      const flame = obj.userData.flame;
+      const meshes = flame.userData.meshes || [];
+      for (const m of meshes) {
+        if (m.mesh && m.mesh.material) {
+          m.mesh.material.opacity = m.baseOpacity * a;
+        }
+      }
+      if (flame.userData.glow && flame.userData.glow.material) {
+        flame.userData.glow.material.opacity = (flame.userData.baseGlowOpacity || 0.35) * a;
+      }
+      if (flame.userData.light) {
+        flame.userData.light.intensity = (flame.userData.baseLightIntensity || 2) * a;
+      }
+    }
+  });
 }
 
 // =========================================================
@@ -962,7 +1256,7 @@ export function collapseRocket(rocketGroup, supportGroup, scene) {
 }
 
 // =========================================================
-// LAUNCH SEQUENCE
+// LAUNCH SEQUENCE (Test Fire — hover and land)
 // =========================================================
 let activeLaunchId = null;
 
@@ -1038,7 +1332,6 @@ export function playLaunchSequence({
   rocketGroup.rotation.set(0, 0, 0);
   rocketGroup.visible = true;
 
-  // ---- camera state for shake and follow ----
   const cameraBasePos = camera ? camera.position.clone() : null;
   const cameraBaseTarget = controls ? controls.target.clone() : null;
 
@@ -1061,7 +1354,6 @@ export function playLaunchSequence({
     controls.target.y += (targetY - controls.target.y) * strength;
   }
 
-  // ---- per-mission flags so we only spawn things once ----
   let clampSparksFired = false;
   let ignitionFlashRef = null;
   let groundSmokeRef = null;
@@ -1074,12 +1366,10 @@ export function playLaunchSequence({
   const loop = () => {
     const elapsed = performance.now() - startTime;
 
-    // -------- INERT: no engine --------
     if (mode === 'inert') {
       if (elapsed < CLAMP_MS) {
         retractClamps(supportGroup, elapsed / CLAMP_MS);
         onPhase('clamps');
-
         if (!clampSparksFired) {
           clampSparksFired = true;
           const pos = new THREE.Vector3();
@@ -1104,12 +1394,10 @@ export function playLaunchSequence({
       return;
     }
 
-    // -------- DRY: engine but no propellant --------
     if (mode === 'dry') {
       if (elapsed < CLAMP_MS) {
         retractClamps(supportGroup, elapsed / CLAMP_MS);
         onPhase('clamps');
-
         if (!clampSparksFired) {
           clampSparksFired = true;
           const pos = new THREE.Vector3();
@@ -1146,12 +1434,10 @@ export function playLaunchSequence({
       return;
     }
 
-    // -------- RIP: engine + propellant, no thrust structure --------
     if (mode === 'rip') {
       if (elapsed < CLAMP_MS) {
         retractClamps(supportGroup, elapsed / CLAMP_MS);
         onPhase('clamps');
-
         if (!clampSparksFired) {
           clampSparksFired = true;
           const pos = new THREE.Vector3();
@@ -1196,12 +1482,10 @@ export function playLaunchSequence({
       return;
     }
 
-    // -------- STUCK: full fire but TWR < 1 --------
     if (mode === 'stuck') {
       if (elapsed < CLAMP_MS) {
         retractClamps(supportGroup, elapsed / CLAMP_MS);
         onPhase('clamps');
-
         if (!clampSparksFired) {
           clampSparksFired = true;
           const pos = new THREE.Vector3();
@@ -1239,7 +1523,6 @@ export function playLaunchSequence({
     if (elapsed < CLAMP_MS) {
       retractClamps(supportGroup, elapsed / CLAMP_MS);
       onPhase('clamps');
-
       if (!clampSparksFired) {
         clampSparksFired = true;
         const pos = new THREE.Vector3();
@@ -1250,7 +1533,6 @@ export function playLaunchSequence({
       retractClamps(supportGroup, 1);
       const p = (elapsed - CLAMP_MS) / 4000;
 
-      // first moment of ascent — flash and smoke
       if (!ignitionFlashRef) {
         const pos = new THREE.Vector3();
         rocketGroup.getWorldPosition(pos);
@@ -1263,7 +1545,6 @@ export function playLaunchSequence({
         groundSmokeRef = spawnGroundSmoke(scene, pos, 1.2);
       }
 
-      // camera follow + fading shake
       followRocket(0.08);
       const shake = Math.max(0, 0.35 * (1 - p * 1.5));
       if (shake > 0.01) applyCameraShake(shake);
@@ -1344,5 +1625,456 @@ export function playLaunchSequence({
   activeLaunchId = requestAnimationFrame(loop);
 }
 
+// =========================================================
+// MISSION ASCENT
+// Full launch with multi-camera direction and Earth backdrop.
+// Used by Launch Mission. Test Fire uses playLaunchSequence.
+// =========================================================
+export function playAscentSequence({
+  rocketGroup,
+  supportGroup,
+  scene,
+  camera,
+  controls,
+  template,
+  installed,
+  onPhase = () => {},
+  onComplete = () => {},
+}) {
+  abortLaunch();
+
+  const bySlot = {};
+  for (const p of installed) bySlot[p.slot] = p;
+  const has = slot => !!bySlot[slot];
+
+  const hasEngine = has('engine_cluster');
+  const hasFuel = has('fuel_tank');
+  const hasOx = has('oxidizer_tank');
+  const hasThrust = has('thrust_structure');
+
+  let twr = 0;
+  if (hasEngine) {
+    const engine = bySlot.engine_cluster;
+    const mass = installed.reduce((s, p) => s + (p.mass_kg || 0), 0)
+               + (template.baseStructuralMassKg || 0);
+    twr = (engine.thrust_kN * 1000) / (mass * 9.81);
+  }
+
+  if (!hasEngine || !hasFuel || !hasOx || !hasThrust || twr < 1.0) {
+    return playLaunchSequence({
+      rocketGroup, supportGroup, scene, camera, controls,
+      template, installed, onPhase, onComplete,
+    });
+  }
+
+  const segments = rocketGroup.userData.segments || [];
+  const S = rocketGroup.userData.totalHeight || 10;
+  const baseSeg = segments[0];
+  if (!baseSeg) return;
+
+  let separationSeg = null;
+  for (const seg of segments) {
+    if (seg.userData.slot === 'separation') { separationSeg = seg; break; }
+  }
+
+  // ---------- snapshot ----------
+  const camStart = camera.position.clone();
+  const targetStart = controls.target.clone();
+  const fovStart = camera.fov;
+  const controlsWasEnabled = controls.enabled;
+  controls.enabled = false;
+
+  // ---------- sky ----------
+  let skyUniforms = null;
+  let skyMesh = null;
+  scene.traverse(o => {
+    if (o.userData && o.userData.uniforms && o.userData.uniforms.topColor) {
+      skyUniforms = o.userData.uniforms;
+      skyMesh = o;
+    }
+  });
+  const skyStart = skyUniforms ? {
+    top:     skyUniforms.topColor.value.clone(),
+    mid:     skyUniforms.midColor.value.clone(),
+    horizon: skyUniforms.horizonColor.value.clone(),
+    ground:  skyUniforms.groundColor.value.clone(),
+  } : null;
+  const skySpace = {
+    top:     new THREE.Color(0x000000),
+    mid:     new THREE.Color(0x000205),
+    horizon: new THREE.Color(0x2a6a9a),
+    ground:  new THREE.Color(0x0a1e2c),
+  };
+
+  // ---------- ground meshes ----------
+  const groundMeshes = [];
+  scene.traverse(o => {
+    if (!o.isMesh && !o.isPoints) return;
+    if (o === rocketGroup) return;
+    let p = o.parent;
+    let inRocket = false;
+    while (p) { if (p === rocketGroup) { inRocket = true; break; } p = p.parent; }
+    if (inRocket) return;
+    if (o.material && o.material.uniforms) return;
+    const wp = new THREE.Vector3();
+    o.getWorldPosition(wp);
+    if (Math.abs(wp.y) < 200) {
+      groundMeshes.push({ mesh: o, origVisible: o.visible, origOpacity: o.material?.opacity });
+    }
+  });
+
+  // ---------- fade overlay ----------
+  const fadeEl = document.createElement('div');
+  fadeEl.className = 'ascent-fade';
+  document.body.appendChild(fadeEl);
+
+  // ---------- contrail + clouds + stars ----------
+  const contrail = createContrail(scene, 500);
+  const cloudLayer = createCloudLayer(scene, S * 4.5);
+  const starfield = createStarfield(scene, 700);
+
+  // ---------- staging ----------
+  let stage1Group = null;
+  const stage1Vel = new THREE.Vector3();
+  const stage1Spin = new THREE.Vector3();
+  let staged = false;
+
+  // ---------- reset ----------
+  resetClamps(supportGroup);
+  hideAllFlames(rocketGroup);
+  setFlameOpacity(rocketGroup, 1);
+  rocketGroup.position.set(0, 0, 0);
+  rocketGroup.rotation.set(0, 0, 0);
+  rocketGroup.visible = true;
+
+  // =========================================================
+  // TIMELINE — 24s, slow enough to watch
+  // =========================================================
+  const T = {
+    padEnd:      1.5,
+    engineEnd:   3.5,
+    liftEnd:     5.5,
+    groundEnd:   8.5,
+    sideEnd:    12.0,
+    midEnd:     15.5,
+    upperEnd:   19.0,
+    spaceEnd:   21.5,
+    fadeEnd:    24.0,
+  };
+  const DURATION = T.fadeEnd;
+
+  // =========================================================
+  // ALTITUDE KEYFRAMES (units = S)
+  // =========================================================
+  const KEY = [
+    { t: 0.0,  y: 0.0 },
+    { t: 3.5,  y: 0.0 },
+    { t: 5.5,  y: 0.6 },
+    { t: 8.5,  y: 1.8 },
+    { t: 12.0, y: 3.5 },
+    { t: 15.5, y: 6.0 },
+    { t: 19.0, y: 9.5 },
+    { t: 21.5, y: 13.0 },
+    { t: 24.0, y: 15.5 },
+  ];
+
+  function altitudeAt(t) {
+    if (t <= KEY[0].t) return 0;
+    for (let i = 0; i < KEY.length - 1; i++) {
+      const a = KEY[i];
+      const b = KEY[i + 1];
+      if (t >= a.t && t <= b.t) {
+        const p = (t - a.t) / (b.t - a.t);
+        const e = p * p * (3 - 2 * p);
+        return S * (a.y + (b.y - a.y) * e);
+      }
+    }
+    return S * KEY[KEY.length - 1].y;
+  }
+
+  // =========================================================
+  // CAMERA SHOTS
+  //
+  // `zoom` grows from 1.0 to 1.9 across the flight so the
+  // camera pulls back as the rocket climbs — the rocket
+  // appears to recede into the distance, then stays framed
+  // because distance growth outpaces visual shrinkage.
+  // =========================================================
+  function shotFor(t, ry) {
+    // zoom factor: 1.0 at t=0 → 1.9 at t=T.upperEnd
+    const zoomRaw = Math.max(0, Math.min(1, (t - T.engineEnd) / (T.upperEnd - T.engineEnd)));
+    const zoom = 1.0 + zoomRaw * 0.9;
+
+    // P1 — pad wide (0–1.5s)
+    if (t < T.padEnd) {
+      return {
+        pos:  new THREE.Vector3(S * 3.6, ry + S * 1.2, S * 4.5),
+        look: new THREE.Vector3(0, ry + S * 0.45, 0),
+        fov:  40,
+      };
+    }
+    // P2 — base tight (1.5–3.5s)
+    if (t < T.engineEnd) {
+      return {
+        pos:  new THREE.Vector3(S * 2.6, ry + S * 1.0, S * 3.1),
+        look: new THREE.Vector3(0, ry + S * 0.42, 0),
+        fov:  44,
+      };
+    }
+    // P3 — low, looking up (3.5–8.5s)
+    if (t < T.groundEnd) {
+      return {
+        pos:  new THREE.Vector3(S * 3.4 * zoom, ry + S * 0.5, S * 4.0 * zoom),
+        look: new THREE.Vector3(0, ry + S * 0.55, 0),
+        fov:  42,
+      };
+    }
+    // P4 — side follow (8.5–12.0s)
+    if (t < T.sideEnd) {
+      return {
+        pos:  new THREE.Vector3(S * 3.6 * zoom, ry + S * 0.6 * zoom, S * 4.2 * zoom),
+        look: new THREE.Vector3(0, ry + S * 0.45, 0),
+        fov:  40,
+      };
+    }
+    // P5 — high 3/4 (12.0–15.5s)
+    if (t < T.midEnd) {
+      return {
+        pos:  new THREE.Vector3(S * 4.4 * zoom, ry + S * 1.2 * zoom, S * 5.0 * zoom),
+        look: new THREE.Vector3(0, ry + S * 0.35, 0),
+        fov:  38,
+      };
+    }
+    // P6 — wide (15.5–19.0s)
+    if (t < T.upperEnd) {
+      return {
+        pos:  new THREE.Vector3(S * 5.5 * zoom, ry + S * 1.1 * zoom, S * 6.3 * zoom),
+        look: new THREE.Vector3(0, ry + S * 0.30, 0),
+        fov:  36,
+      };
+    }
+    // P7 — space (19.0–24.0s)
+    return {
+      pos:  new THREE.Vector3(S * 7.5 * zoom, ry + S * 1.0 * zoom, S * 8.5 * zoom),
+      look: new THREE.Vector3(0, ry + S * 0.25, 0),
+      fov:  34,
+    };
+  }
+
+  const start = performance.now();
+  let last = start;
+  let lastPhase = '';
+  let contrailTimer = 0;
+
+  const setPhase = (name) => {
+    if (name === lastPhase) return;
+    lastPhase = name;
+    onPhase(name);
+  };
+
+  const cleanup = () => {
+    if (skyUniforms && skyStart) {
+      skyUniforms.topColor.value.copy(skyStart.top);
+      skyUniforms.midColor.value.copy(skyStart.mid);
+      skyUniforms.horizonColor.value.copy(skyStart.horizon);
+      skyUniforms.groundColor.value.copy(skyStart.ground);
+    }
+    if (skyMesh) skyMesh.position.set(0, 0, 0);
+
+    for (const gm of groundMeshes) {
+      gm.mesh.visible = gm.origVisible;
+      if (gm.mesh.material && gm.origOpacity !== undefined) {
+        gm.mesh.material.opacity = gm.origOpacity;
+      }
+    }
+
+    camera.fov = fovStart;
+    camera.updateProjectionMatrix();
+    camera.position.copy(camStart);
+    controls.target.copy(targetStart);
+    controls.enabled = controlsWasEnabled;
+    controls.update();
+
+    if (stage1Group && stage1Group.parent) {
+      stage1Group.parent.remove(stage1Group);
+      stage1Group.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+      stage1Group = null;
+    }
+
+    contrail.dispose();
+    cloudLayer.dispose();
+    starfield.dispose();
+
+    if (fadeEl && fadeEl.parentNode) fadeEl.parentNode.removeChild(fadeEl);
+  };
+
+  const loop = () => {
+    const now = performance.now();
+    const t = (now - start) / 1000;
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+
+    const ry = altitudeAt(t);
+    rocketGroup.position.y = ry;
+
+    retractClamps(supportGroup, t < T.padEnd ? t / T.padEnd : 1);
+
+    // ---------- flames + plume expansion ----------
+    if (t > T.padEnd - 0.2) {
+      const fade = Math.min(1, (t - (T.padEnd - 0.2)) / 0.6);
+      setFlameOpacity(rocketGroup, fade);
+
+      // wider plume at altitude (vacuum expansion)
+      const altFactor = Math.min(1, ry / (S * 5));
+      const plumeScale = 1 + altFactor * 0.8;
+
+      const flames = showAllFlames(rocketGroup, fade);
+      for (const f of flames) {
+        const flick = 0.9 + Math.random() * 0.15;
+        f.scale.set(flick * plumeScale, flick * (0.9 + altFactor * 0.7), flick * plumeScale);
+      }
+    }
+
+    // ---------- contrail spawn ----------
+    if (t > T.padEnd + 0.4 && ry > 0) {
+      contrailTimer += dt;
+      const interval = 0.018;
+      while (contrailTimer > interval) {
+        contrailTimer -= interval;
+        // spawn at rocket base
+        const baseY = ry + Math.random() * 0.5;
+        contrail.spawn(
+          (Math.random() - 0.5) * S * 0.1,
+          baseY,
+          (Math.random() - 0.5) * S * 0.1,
+          (Math.random() - 0.5) * 0.4,
+          -0.4 - Math.random() * 0.5,
+          (Math.random() - 0.5) * 0.4,
+          1.5 + Math.random() * 1.5
+        );
+      }
+    }
+    contrail.update(dt);
+
+    // ---------- staging ----------
+    if (!staged && t >= T.sideEnd - 0.4 && separationSeg && separationSeg.userData.nextParent) {
+      staged = true;
+      setPhase('staging');
+
+      const stage2Root = separationSeg.userData.nextParent;
+      rocketGroup.attach(stage2Root);
+
+      stage1Group = new THREE.Group();
+      stage1Group.position.copy(rocketGroup.position);
+      scene.add(stage1Group);
+      stage1Group.attach(baseSeg);
+
+      stage1Vel.set(
+        (Math.random() - 0.5) * 1.0,
+        -S * 0.25,
+        (Math.random() - 0.5) * 1.0
+      );
+      stage1Spin.set(
+        (Math.random() - 0.5) * 1.0,
+        (Math.random() - 0.5) * 0.5,
+        (Math.random() - 0.5) * 1.0
+      );
+
+      stage1Group.traverse(o => {
+        if (o.userData && o.userData.flame) o.userData.flame.visible = false;
+      });
+    }
+
+    if (stage1Group) {
+      stage1Group.position.addScaledVector(stage1Vel, dt);
+      stage1Group.rotation.x += stage1Spin.x * dt;
+      stage1Group.rotation.y += stage1Spin.y * dt;
+      stage1Group.rotation.z += stage1Spin.z * dt;
+    }
+
+    // ---------- sky tween ----------
+    if (skyUniforms && skyStart) {
+      const raw = Math.max(0, Math.min(1, (t - T.padEnd) / (T.upperEnd - T.padEnd)));
+      const k = raw * raw * (3 - 2 * raw);
+      skyUniforms.topColor.value.lerpColors(skyStart.top, skySpace.top, k);
+      skyUniforms.midColor.value.lerpColors(skyStart.mid, skySpace.mid, k);
+      skyUniforms.horizonColor.value.lerpColors(skyStart.horizon, skySpace.horizon, k);
+      skyUniforms.groundColor.value.lerpColors(skyStart.ground, skySpace.ground, k);
+    }
+
+    if (skyMesh) skyMesh.position.copy(camera.position);
+
+    // ---------- cloud layer opacity ----------
+    // Fades in from t=6, peaks when rocket is at cloud altitude,
+    // fades out after.
+    {
+      const cloudAlt = S * 4.5;
+      const rocketAtCloud = ry / cloudAlt; // 0..1+
+      // use a hump: transparent far below, opaque near, transparent above
+      const near = Math.max(0, 1 - Math.abs(rocketAtCloud - 1) * 2.2);
+      const k = Math.pow(near, 1.5) * 0.85;
+      cloudLayer.setOpacity(k);
+      cloudLayer.spin(dt);
+    }
+
+    // ---------- starfield ----------
+    {
+      const starRaw = Math.max(0, Math.min(1, (t - T.sideEnd) / (T.midEnd - T.sideEnd)));
+      starfield.setAlpha(starRaw * 0.85);
+      starfield.update(camera.position, t);
+    }
+
+    // ---------- ground fade ----------
+    const groundFade = Math.max(0, Math.min(1, (t - T.groundEnd) / (T.midEnd - T.groundEnd)));
+    const groundVisible = groundFade < 0.9;
+    for (const gm of groundMeshes) {
+      if (groundVisible) {
+        gm.mesh.visible = gm.origVisible;
+        if (gm.mesh.material && gm.origOpacity !== undefined) {
+          gm.mesh.material.opacity = gm.origOpacity * (1 - groundFade);
+          gm.mesh.material.transparent = true;
+        }
+      } else {
+        gm.mesh.visible = false;
+      }
+    }
+
+    // ---------- camera ----------
+    const shot = shotFor(t, ry);
+    camera.position.copy(shot.pos);
+    controls.target.copy(shot.look);
+    controls.update();
+    if (camera.fov !== shot.fov) {
+      camera.fov = shot.fov;
+      camera.updateProjectionMatrix();
+    }
+
+    // ---------- phases ----------
+    if (t < T.padEnd)          setPhase('clamps');
+    else if (t < T.engineEnd)  setPhase('ignition');
+    else if (t < T.groundEnd)  setPhase('liftoff');
+    else if (t < T.sideEnd)    setPhase('maxq');
+    else if (t < T.midEnd)     setPhase('engine');
+    else if (t < T.upperEnd)   setPhase('upper');
+    else                        setPhase('coast');
+
+    // ---------- fade ----------
+    if (t > T.spaceEnd - 1.5) {
+      const p = Math.max(0, Math.min(1, (t - (T.spaceEnd - 1.5)) / 1.5));
+      fadeEl.style.opacity = String(p);
+    }
+
+    if (t >= DURATION) {
+      cleanup();
+      onComplete(true, { quality: 1, twr, reason: 'Reached orbit.' });
+      activeLaunchId = null;
+      return;
+    }
+
+    activeLaunchId = requestAnimationFrame(loop);
+  };
+
+  activeLaunchId = requestAnimationFrame(loop);
+}
 function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
 function easeIn(t)  { return t * t * t; }

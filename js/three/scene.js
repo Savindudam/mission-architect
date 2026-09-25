@@ -72,80 +72,13 @@ function makeEnvMap(renderer) {
   return envMap;
 }
 
-function makeGrid() {
-  const g = new THREE.Group();
-
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0x1e2e4a, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
-  const ringMatBright = new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.25, side: THREE.DoubleSide });
-
-  for (let i = 1; i <= 8; i++) {
-    const r = i * 3.5;
-    const isMajor = i % 2 === 0;
-    const ringGeo = new THREE.RingGeometry(r - 0.03, r, 96);
-    const ring = new THREE.Mesh(ringGeo, isMajor ? ringMatBright : ringMat);
-    ring.rotation.x = -Math.PI / 2;
-    g.add(ring);
-  }
-
-  const spokeMat = new THREE.LineBasicMaterial({ color: 0x1e2e4a, transparent: true, opacity: 0.5 });
-  const outerR = 28;
-  for (let i = 0; i < 24; i++) {
-    const a = (i / 24) * Math.PI * 2;
-    const pts = [
-      new THREE.Vector3(Math.cos(a) * 2.5, 0, Math.sin(a) * 2.5),
-      new THREE.Vector3(Math.cos(a) * outerR, 0, Math.sin(a) * outerR),
-    ];
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    g.add(new THREE.Line(geo, spokeMat));
-  }
-
-  const outerGeo = new THREE.RingGeometry(outerR - 0.06, outerR, 128);
-  const outerRing = new THREE.Mesh(outerGeo, new THREE.MeshBasicMaterial({
-    color: 0x22d3ee, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
-  }));
-  outerRing.rotation.x = -Math.PI / 2;
-  g.add(outerRing);
-
-  const padGeo = new THREE.CircleGeometry(2.4, 64);
-  const pad = new THREE.Mesh(padGeo, new THREE.MeshBasicMaterial({ color: 0x0a0a14, transparent: true, opacity: 0.9 }));
-  pad.rotation.x = -Math.PI / 2;
-  pad.position.y = 0.01;
-  g.add(pad);
-
-  const hazardRing = new THREE.Mesh(
-    new THREE.RingGeometry(2.5, 2.65, 64),
-    new THREE.MeshBasicMaterial({ color: 0xffcc22, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
-  );
-  hazardRing.rotation.x = -Math.PI / 2;
-  hazardRing.position.y = 0.02;
-  g.add(hazardRing);
-
-  return g;
-}
-
-function makeContactShadowTexture() {
-  const c = document.createElement('canvas');
-  c.width = 256; c.height = 256;
-  const ctx = c.getContext('2d');
-  const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
-  grad.addColorStop(0, 'rgba(0,0,0,0.85)');
-  grad.addColorStop(0.4, 'rgba(0,0,0,0.45)');
-  grad.addColorStop(0.7, 'rgba(0,0,0,0.15)');
-  grad.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 256, 256);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
 export function createScene(wrap, qualityId) {
   const preset = getPreset(qualityId);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a18);
-  scene.fog = new THREE.FogExp2(0x1a1e2e, IS_MOBILE ? 0.0025 : 0.0032);
-
+  // Lighter fog so the pad isn't a haze ball
+  scene.fog = new THREE.FogExp2(0x1a1e2e, IS_MOBILE ? 0.0010 : 0.0015);
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
   camera.position.set(20, 14, 30);
@@ -157,15 +90,13 @@ export function createScene(wrap, qualityId) {
     powerPreference: 'high-performance',
   });
 
-  // On mobile, halve whatever the preset asks for. A phone running at
-  // Ultra would melt. The cap keeps it sane.
   const pixRatio = IS_MOBILE
     ? Math.min(preset.pixelRatio, 1.25)
     : preset.pixelRatio;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixRatio));
 
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = IS_MOBILE ? preset.exposure * 0.9 : preset.exposure;
+  renderer.toneMappingExposure = IS_MOBILE ? preset.exposure * 0.85 : preset.exposure * 0.95;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   renderer.shadowMap.enabled = preset.shadows.enabled;
@@ -184,15 +115,15 @@ export function createScene(wrap, qualityId) {
 
   scene.environment = makeEnvMap(renderer);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
+  const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.target.set(0, 10, 0);
   controls.minDistance = 6;
   controls.maxDistance = 180;
-  controls.minPolarAngle = 0.15;              // never look straight down
-  controls.maxPolarAngle = Math.PI * 0.49;    // never go below the horizon
-  controls.screenSpacePanning = false;        // pan along the ground plane
+  controls.minPolarAngle = 0.15;
+  controls.maxPolarAngle = Math.PI * 0.49;
+  controls.screenSpacePanning = false;
   controls.touches = {
     ONE: THREE.TOUCH.ROTATE,
     TWO: THREE.TOUCH.DOLLY_PAN,
@@ -202,64 +133,47 @@ export function createScene(wrap, qualityId) {
   controls.panSpeed = IS_MOBILE ? 0.6 : 1.0;
   controls.update();
 
-  const ambient = new THREE.AmbientLight(0xffd8b0, IS_MOBILE ? 0.22 : 0.18);
+  // ---- lighting ----
+  // Higher ambient so shadows aren't pitch black.
+  const ambient = new THREE.AmbientLight(0xc8d0e0, IS_MOBILE ? 0.34 : 0.30);
   scene.add(ambient);
 
-  const hemi = new THREE.HemisphereLight(0xa8c0ff, 0x4a2818, IS_MOBILE ? 0.5 : 0.45);
+  const hemi = new THREE.HemisphereLight(0xa8c0ff, 0x4a2818, IS_MOBILE ? 0.5 : 0.4);
   scene.add(hemi);
 
-  const key = new THREE.DirectionalLight(0xffffff, IS_MOBILE ? 1.8 : 2.0);
-  key.position.set(20, 40, 20);
+  // Sun raised to nearly overhead. Shadow shorter and softer.
+  const key = new THREE.DirectionalLight(0xffffff, IS_MOBILE ? 1.4 : 1.6);
+  key.position.set(30, 90, 30);
   key.castShadow = preset.shadows.enabled;
   key.shadow.mapSize.width = preset.shadows.mapSize;
   key.shadow.mapSize.height = preset.shadows.mapSize;
   key.shadow.camera.near = 1;
-  key.shadow.camera.far = 120;
-  key.shadow.camera.left = -40;
-  key.shadow.camera.right = 40;
-  key.shadow.camera.top = 40;
-  key.shadow.camera.bottom = -40;
-  key.shadow.bias = -0.0003;
-  key.shadow.normalBias = 0.025;
-  key.shadow.radius = IS_MOBILE ? 2 : 4;
+  key.shadow.camera.far = 220;
+  // Wide enough to cover the 70-wide pad plus surroundings.
+  key.shadow.camera.left = -90;
+  key.shadow.camera.right = 90;
+  key.shadow.camera.top = 90;
+  key.shadow.camera.bottom = -90;
+  key.shadow.bias = -0.0008;
+  key.shadow.normalBias = 0.03;
+  key.shadow.radius = IS_MOBILE ? 4 : 8;
   scene.add(key);
 
-  const rim = new THREE.DirectionalLight(0x22d3ee, IS_MOBILE ? 1.2 : 1.5);
+  const rim = new THREE.DirectionalLight(0x22d3ee, IS_MOBILE ? 0.6 : 0.8);
   rim.position.set(0, 8, -30);
   scene.add(rim);
 
   if (!IS_MOBILE) {
-    const fill = new THREE.DirectionalLight(0x88aaff, 0.7);
+    const fill = new THREE.DirectionalLight(0x88aaff, 0.5);
     fill.position.set(-20, 15, -20);
     scene.add(fill);
-    const under = new THREE.DirectionalLight(0xff8855, 0.5);
+    const under = new THREE.DirectionalLight(0xff8855, 0.35);
     under.position.set(0, -20, 10);
     scene.add(under);
   }
 
-  
-
-  const shadowPlane = new THREE.Mesh(
-    new THREE.PlaneGeometry(120, 120),
-    new THREE.ShadowMaterial({ opacity: 0.6 })
-  );
-  shadowPlane.rotation.x = -Math.PI / 2;
-  shadowPlane.position.y = -0.04;
-  shadowPlane.receiveShadow = true;
-  scene.add(shadowPlane);
-
-  const contactShadow = new THREE.Mesh(
-    new THREE.PlaneGeometry(9, 9),
-    new THREE.MeshBasicMaterial({
-      map: makeContactShadowTexture(),
-      transparent: true,
-      opacity: 0.75,
-      depthWrite: false,
-    })
-  );
-  contactShadow.rotation.x = -Math.PI / 2;
-  contactShadow.position.y = 0.02;
-  scene.add(contactShadow);
+  // NOTE: no shadowPlane, no contactShadow.
+  // The pad's top surface catches the directional shadow directly.
 
   const rocketGroup = new THREE.Group();
   scene.add(rocketGroup);
@@ -270,9 +184,9 @@ export function createScene(wrap, qualityId) {
   composer.addPass(new RenderPass(scene, camera));
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(wrap.clientWidth || 800, wrap.clientHeight || 600),
-    preset.bloom.enabled ? (IS_MOBILE ? preset.bloom.strength * 0.6 : preset.bloom.strength) : 0,
+    preset.bloom.enabled ? (IS_MOBILE ? preset.bloom.strength * 0.5 : preset.bloom.strength * 0.75) : 0,
     preset.bloom.radius,
-    preset.bloom.threshold
+    preset.bloom.threshold + 0.05
   );
   composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
@@ -306,12 +220,6 @@ export function createScene(wrap, qualityId) {
         if (controls.target.y < 1) controls.target.y = 1;
         if (camera.position.y < 1) camera.position.y = 1;
         updateEnvironment(environment, now * 0.001, Math.min(0.05, delta / 1000));
-        const y = rocketGroup.position.y;
-        contactShadow.position.x = rocketGroup.position.x;
-        contactShadow.position.z = rocketGroup.position.z;
-        const s = 1 + y * 0.12;
-        contactShadow.scale.set(s, s, s);
-        contactShadow.material.opacity = 0.75 * Math.max(0, 1 - y * 0.1);
         composer.render();
       }
     }
@@ -343,6 +251,6 @@ export function createScene(wrap, qualityId) {
 
   return {
     scene, camera, renderer, controls, rocketGroup, dispose,
-    IS_MOBILE, composer, enableShadows, contactShadow, environment, preset,
+    IS_MOBILE, composer, enableShadows, environment, preset,
   };
 }

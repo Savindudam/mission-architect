@@ -26,7 +26,6 @@ function canvas2d(w, h) {
 }
 
 // ---------- noise ----------
-// Cheap value noise used by every texture generator.
 
 function valueNoise(x, y, seed) {
   const n = Math.sin(x * 12.9898 + y * 78.233 + seed * 37.719) * 43758.5453;
@@ -62,10 +61,23 @@ function fbm(x, y, octaves, seed) {
 }
 
 // ============================================================
-// TEXTURES
+// MATERIALS (declared up top so makePad can reference them)
 // ============================================================
 
-// ---------- concrete color ----------
+const MAT_STEEL = new THREE.MeshStandardMaterial({ color: 0x6a6a74, roughness: 0.42, metalness: 0.85 });
+const MAT_STEEL_DARK = new THREE.MeshStandardMaterial({ color: 0x2a2a32, roughness: 0.38, metalness: 0.9 });
+const MAT_WHITE = new THREE.MeshStandardMaterial({ color: 0xd8d8dc, roughness: 0.55, metalness: 0.1 });
+const MAT_HAZARD_YELLOW = new THREE.MeshStandardMaterial({ color: 0xd9a520, roughness: 0.6, metalness: 0.3 });
+const MAT_HAZARD_DARK = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.6, metalness: 0.3 });
+const MAT_HAZARD_RED = new THREE.MeshStandardMaterial({ color: 0xb8332a, roughness: 0.6, metalness: 0.3 });
+const MAT_HANGAR = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.7, metalness: 0.2 });
+const MAT_HANGAR_DARK = new THREE.MeshStandardMaterial({ color: 0x22262e, roughness: 0.75, metalness: 0.15 });
+const MAT_LIGHT_HOUSING = new THREE.MeshStandardMaterial({ color: 0x1a1a20, roughness: 0.5, metalness: 0.6 });
+const MAT_GLOW = new THREE.MeshBasicMaterial({ color: 0xfff4c4, transparent: true, opacity: 0.95 });
+
+// ============================================================
+// TEXTURES
+// ============================================================
 
 function makeConcreteColor() {
   return cached('concreteColor', () => {
@@ -76,7 +88,6 @@ function makeConcreteColor() {
     ctx.fillStyle = '#7a7a80';
     ctx.fillRect(0, 0, size, size);
 
-    // base noise
     for (let y = 0; y < size; y += 2) {
       for (let x = 0; x < size; x += 2) {
         const n = fbm(x * 0.02, y * 0.02, 5, 1);
@@ -86,7 +97,6 @@ function makeConcreteColor() {
       }
     }
 
-    // oil and rust patches
     for (let i = 0; i < 40; i++) {
       const x = Math.random() * size;
       const y = Math.random() * size;
@@ -107,16 +117,15 @@ function makeConcreteColor() {
       ctx.fillRect(x - r, y - r, r * 2, r * 2);
     }
 
-    // panel seams every 128px
-    ctx.strokeStyle = 'rgba(30, 30, 34, 0.85)';
-    ctx.lineWidth = 3;
-    for (let i = 128; i < size; i += 128) {
+    // Sparse slab seams — reads as concrete, not floor tiles.
+    ctx.strokeStyle = 'rgba(40, 40, 46, 0.4)';
+    ctx.lineWidth = 2;
+    for (let i = 512; i < size; i += 512) {
       ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, size); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke();
     }
 
-    // hairline cracks
-    ctx.strokeStyle = 'rgba(20, 20, 22, 0.7)';
+    ctx.strokeStyle = 'rgba(20, 20, 22, 0.6)';
     ctx.lineWidth = 1;
     for (let i = 0; i < 80; i++) {
       let x = Math.random() * size;
@@ -132,12 +141,12 @@ function makeConcreteColor() {
       ctx.stroke();
     }
 
-    // bolts at panel intersections
-    for (let i = 128; i < size; i += 128) {
-      for (let j = 128; j < size; j += 128) {
-        ctx.fillStyle = 'rgba(50, 50, 55, 0.95)';
+    // Bolts only at the sparse seams
+    for (let i = 512; i < size; i += 512) {
+      for (let j = 512; j < size; j += 512) {
+        ctx.fillStyle = 'rgba(50, 50, 55, 0.9)';
         ctx.beginPath(); ctx.arc(i, j, 5, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = 'rgba(180, 180, 185, 0.9)';
+        ctx.fillStyle = 'rgba(180, 180, 185, 0.8)';
         ctx.beginPath(); ctx.arc(i - 1.5, j - 1.5, 2.5, 0, Math.PI * 2); ctx.fill();
       }
     }
@@ -150,47 +159,37 @@ function makeConcreteColor() {
   });
 }
 
-// ---------- concrete normal map ----------
-// Encodes the panel seams, cracks and bolts as height. Gives real surface
-// depth when lit from the side.
-
 function makeConcreteNormal() {
   return cached('concreteNormal', () => {
     const size = 1024;
     const c = canvas2d(size, size);
     const ctx = c.getContext('2d');
 
-    // flat grey = flat surface
     ctx.fillStyle = '#8080ff';
     ctx.fillRect(0, 0, size, size);
 
-    // noise-driven bumps
     for (let y = 0; y < size; y += 1) {
       for (let x = 0; x < size; x += 1) {
         const n = fbm(x * 0.05, y * 0.05, 3, 7);
         const bump = Math.floor(n * 40) - 20;
-        const px = x;
-        const py = y;
         ctx.fillStyle = `rgb(${128 + bump}, ${128 + bump}, 255)`;
-        ctx.fillRect(px, py, 1, 1);
+        ctx.fillRect(x, y, 1, 1);
       }
     }
 
-    // panel seams pressed in
     ctx.fillStyle = 'rgb(80, 80, 255)';
-    for (let i = 128; i < size; i += 128) {
+    for (let i = 512; i < size; i += 512) {
       ctx.fillRect(i - 2, 0, 4, size);
       ctx.fillRect(0, i - 2, size, 4);
     }
     ctx.fillStyle = 'rgb(180, 180, 255)';
-    for (let i = 128; i < size; i += 128) {
+    for (let i = 512; i < size; i += 512) {
       ctx.fillRect(i - 4, 0, 2, size);
       ctx.fillRect(0, i - 4, size, 2);
     }
 
-    // bolt heads raised
-    for (let i = 128; i < size; i += 128) {
-      for (let j = 128; j < size; j += 128) {
+    for (let i = 512; i < size; i += 512) {
+      for (let j = 512; j < size; j += 512) {
         const g = ctx.createRadialGradient(i, j, 0, i, j, 6);
         g.addColorStop(0, 'rgb(220, 220, 255)');
         g.addColorStop(0.7, 'rgb(180, 180, 255)');
@@ -207,8 +206,6 @@ function makeConcreteNormal() {
   });
 }
 
-// ---------- ground color ----------
-
 function makeGroundColor() {
   return cached('groundColor', () => {
     const size = 1024;
@@ -218,7 +215,6 @@ function makeGroundColor() {
     ctx.fillStyle = '#5c4536';
     ctx.fillRect(0, 0, size, size);
 
-    // fractal terrain tint
     for (let y = 0; y < size; y += 2) {
       for (let x = 0; x < size; x += 2) {
         const n = fbm(x * 0.008, y * 0.008, 6, 12);
@@ -230,7 +226,6 @@ function makeGroundColor() {
       }
     }
 
-    // wind streaks
     ctx.strokeStyle = 'rgba(45, 32, 24, 0.55)';
     ctx.lineWidth = 1.6;
     for (let i = 0; i < 400; i++) {
@@ -243,7 +238,6 @@ function makeGroundColor() {
       ctx.stroke();
     }
 
-    // dark basins
     for (let i = 0; i < 40; i++) {
       const x = Math.random() * size;
       const y = Math.random() * size;
@@ -255,7 +249,6 @@ function makeGroundColor() {
       ctx.fillRect(x - r, y - r, r * 2, r * 2);
     }
 
-    // scattered rocks
     for (let i = 0; i < 500; i++) {
       const x = Math.random() * size;
       const y = Math.random() * size;
@@ -274,8 +267,6 @@ function makeGroundColor() {
     return tex;
   });
 }
-
-// ---------- ground normal ----------
 
 function makeGroundNormal() {
   return cached('groundNormal', () => {
@@ -385,7 +376,6 @@ function makeSkyDome() {
         vec3 dir = normalize(vWorldPos);
         float h = dir.y;
 
-        // base gradient
         vec3 sky;
         if (h > 0.0) {
           sky = mix(horizonColor, midColor, smoothstep(0.0, 0.4, h));
@@ -394,7 +384,6 @@ function makeSkyDome() {
           sky = mix(horizonColor, groundColor, smoothstep(0.0, -0.5, h));
         }
 
-        // stars near zenith
         if (h > 0.15) {
           vec3 sDir = dir * 200.0;
           float star = hash(floor(sDir));
@@ -403,14 +392,12 @@ function makeSkyDome() {
           sky += vec3(1.0, 0.95, 0.85) * starMask * twinkle * 1.4;
         }
 
-        // distant cloud layer — very subtle wisps near the horizon
         vec3 cloudDir = dir / max(0.12, abs(h));
         float clouds = fbm(cloudDir * 0.6 + vec3(time * 0.005, 0.0, 0.0));
         clouds = smoothstep(0.55, 0.85, clouds);
         clouds *= smoothstep(-0.05, 0.35, h) * smoothstep(0.75, 0.35, h);
         sky = mix(sky, vec3(0.28, 0.22, 0.30), clouds * 0.55);
 
-        // sun
         float sunDot = max(dot(dir, sunDirection), 0.0);
         float disk = pow(sunDot, 1400.0);
         float innerHalo = pow(sunDot, 30.0) * 0.9;
@@ -436,8 +423,6 @@ function makeSkyDome() {
 
 // ============================================================
 // VOLUMETRIC SUN SHAFT
-// A large transparent cone pointing away from the sun. Combined with
-// additive blending it reads as god rays.
 // ============================================================
 
 function makeSunShaft() {
@@ -465,7 +450,6 @@ function makeSunShaft() {
       uniform float intensity;
       varying vec3 vPos;
       void main() {
-        // fade along the length of the cone
         float t = (vPos.y + 200.0) / 400.0;
         float fade = pow(1.0 - t, 2.0);
         gl_FragColor = vec4(color, fade * intensity);
@@ -477,7 +461,6 @@ function makeSunShaft() {
   shaft.rotation.z = Math.PI / 2;
   shaft.userData.material = shaftMat;
 
-  // Position the shaft so its narrow end is near the sun direction
   const dist = 300;
   shaft.position.set(
     SUN_DIRECTION.x * dist,
@@ -515,22 +498,23 @@ function makeGround() {
   const geo = new THREE.PlaneGeometry(1600, 1600, 4, 4);
   geo.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.y = -0.55;
+  mesh.position.y = -1.2;
   mesh.receiveShadow = true;
   return mesh;
 }
 
 // ============================================================
 // CONCRETE PAD
+// Pad top at -0.30, no trench, tight hazard ring.
 // ============================================================
 
 function makePad() {
   const g = new THREE.Group();
 
   const color = makeConcreteColor();
-  color.repeat.set(4, 4);
+  color.repeat.set(2, 2);
   const normal = makeConcreteNormal();
-  normal.repeat.set(4, 4);
+  normal.repeat.set(2, 2);
 
   const padMat = new THREE.MeshStandardMaterial({
     map: color,
@@ -541,41 +525,36 @@ function makePad() {
     metalness: 0.06,
   });
 
-  // main pad
-  const pad = new THREE.Mesh(new THREE.BoxGeometry(90, 0.6, 90), padMat);
-  pad.position.y = -0.1;
+  const PAD_TOP = -0.30;
+  const PAD_SIZE = 70;
+
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(PAD_SIZE, 1.2, PAD_SIZE), padMat);
+  pad.position.y = PAD_TOP - 0.6;
   pad.receiveShadow = true;
   g.add(pad);
 
-  // pad lip — raised edge all the way around
+  // Low curb around the edge
   const lipMat = new THREE.MeshStandardMaterial({ color: 0x38383f, roughness: 0.9 });
-  const L = 91;
-  const lipH = 0.5;
-  const lipT = 0.7;
-  g.add(new THREE.Mesh(new THREE.BoxGeometry(L, lipH, lipT), lipMat).clone().translateZ( L / 2));
-  g.add(new THREE.Mesh(new THREE.BoxGeometry(L, lipH, lipT), lipMat).clone().translateZ(-L / 2));
-  g.add(new THREE.Mesh(new THREE.BoxGeometry(lipT, lipH, L), lipMat).clone().translateX( L / 2));
-  g.add(new THREE.Mesh(new THREE.BoxGeometry(lipT, lipH, L), lipMat).clone().translateX(-L / 2));
+  const L = PAD_SIZE + 1;
+  const lipH = 0.3;
+  const lipT = 0.6;
+  const lipY = PAD_TOP + lipH / 2;
 
-  // blast trench
-  const trench = new THREE.Mesh(
-    new THREE.BoxGeometry(11, 0.5, 62),
-    new THREE.MeshStandardMaterial({ color: 0x0e0e14, roughness: 0.98 })
-  );
-  trench.position.y = -0.5;
-  g.add(trench);
+  const lipN = new THREE.Mesh(new THREE.BoxGeometry(L, lipH, lipT), lipMat);
+  lipN.position.set(0, lipY,  L / 2); g.add(lipN);
+  const lipS = new THREE.Mesh(new THREE.BoxGeometry(L, lipH, lipT), lipMat);
+  lipS.position.set(0, lipY, -L / 2); g.add(lipS);
+  const lipE = new THREE.Mesh(new THREE.BoxGeometry(lipT, lipH, L), lipMat);
+  lipE.position.set( L / 2, lipY, 0); g.add(lipE);
+  const lipW = new THREE.Mesh(new THREE.BoxGeometry(lipT, lipH, L), lipMat);
+  lipW.position.set(-L / 2, lipY, 0); g.add(lipW);
 
-  const trenchFloor = new THREE.Mesh(
-    new THREE.BoxGeometry(10, 0.1, 60),
-    new THREE.MeshStandardMaterial({ color: 0x2a2a32, roughness: 0.9 })
-  );
-  trenchFloor.position.y = -0.8;
-  g.add(trenchFloor);
-
-  // hazard ring — yellow with black stripes
+  // Hazard ring — painted flat on the pad, tight around the rocket base.
   const ringSegments = 48;
-  const ringR1 = 7.0;
-  const ringR2 = 7.7;
+  const ringR1 = 5.0;
+  const ringR2 = 5.6;
+  const hazardY = PAD_TOP + 0.005;
+
   for (let i = 0; i < ringSegments; i++) {
     const a0 = (i / ringSegments) * Math.PI * 2;
     const a1 = ((i + 1) / ringSegments) * Math.PI * 2;
@@ -583,58 +562,50 @@ function makePad() {
     const mat = i % 2 === 0 ? MAT_HAZARD_YELLOW : MAT_HAZARD_DARK;
     const seg = new THREE.Mesh(geo, mat);
     seg.rotation.x = -Math.PI / 2;
-    seg.position.y = 0.21;
+    seg.position.y = hazardY;
     g.add(seg);
   }
 
-  // thin inner ring
+  // Inner red ring
   const ring2 = new THREE.Mesh(
-    new THREE.RingGeometry(6.35, 6.5, 96),
+    new THREE.RingGeometry(4.5, 4.62, 96),
     MAT_HAZARD_RED
   );
   ring2.rotation.x = -Math.PI / 2;
-  ring2.position.y = 0.21;
+  ring2.position.y = hazardY;
   g.add(ring2);
 
-  // corner chevrons
+  // Corner chevrons — painted, very thin
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     const chev = new THREE.Mesh(
-      new THREE.BoxGeometry(3.2, 0.06, 0.5),
+      new THREE.BoxGeometry(2.4, 0.02, 0.4),
       MAT_HAZARD_YELLOW
     );
-    chev.position.set(Math.cos(a) * 28, 0.21, Math.sin(a) * 28);
+    chev.position.set(Math.cos(a) * 24, hazardY, Math.sin(a) * 24);
     chev.rotation.y = -a;
     g.add(chev);
   }
 
-  // tie-down blocks
+  // Small tie-down blocks, on the pad
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    const x = Math.cos(a) * 34;
-    const z = Math.sin(a) * 34;
+    const x = Math.cos(a) * 26;
+    const z = Math.sin(a) * 26;
 
     const block = new THREE.Mesh(
-      new THREE.BoxGeometry(2.4, 0.9, 2.4),
+      new THREE.BoxGeometry(1.8, 0.4, 1.8),
       new THREE.MeshStandardMaterial({ color: 0x404048, roughness: 0.85 })
     );
-    block.position.set(x, 0.45, z);
+    block.position.set(x, PAD_TOP + 0.2, z);
     g.add(block);
 
     const cap = new THREE.Mesh(
-      new THREE.BoxGeometry(2.5, 0.1, 2.5),
+      new THREE.BoxGeometry(1.9, 0.05, 1.9),
       MAT_HAZARD_YELLOW
     );
-    cap.position.set(x, 0.92, z);
+    cap.position.set(x, PAD_TOP + 0.43, z);
     g.add(cap);
-
-    // vertical strut
-    const strut = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15, 0.2, 1.2, 8),
-      MAT_STEEL_DARK
-    );
-    strut.position.set(x, 1.5, z);
-    g.add(strut);
   }
 
   return g;
@@ -642,14 +613,15 @@ function makePad() {
 
 // ============================================================
 // CABLE TRAYS + PIPE NETWORKS
+// yOffset shifts the whole assembly vertically. Set to -1.2 to
+// put it at ground level, below the pad.
 // ============================================================
 
-function makeCableTray(length, x, z, rotY, height) {
+function makeCableTray(length, x, z, rotY, height, yOffset = 0) {
   const g = new THREE.Group();
-  g.position.set(x, 0, z);
+  g.position.set(x, yOffset, z);
   g.rotation.y = rotY;
 
-  // tray — a shallow U-shaped channel
   const floor = new THREE.Mesh(
     new THREE.BoxGeometry(length, 0.06, 0.6),
     MAT_STEEL_DARK
@@ -658,18 +630,17 @@ function makeCableTray(length, x, z, rotY, height) {
   g.add(floor);
 
   const wallL = new THREE.Mesh(
-    new THREE.BoxGeometry(length, 0.35, 0.06),
+    new THREE.BoxGeometry(length, 0.25, 0.06),
     MAT_STEEL
   );
-  wallL.position.set(0, height + 0.15, 0.3);
+  wallL.position.set(0, height + 0.1, 0.3);
   g.add(wallL);
 
   const wallR = wallL.clone();
   wallR.position.z = -0.3;
   g.add(wallR);
 
-  // support brackets every 4 units
-  const count = Math.floor(length / 4);
+  const count = Math.max(1, Math.floor(length / 4));
   for (let i = 0; i <= count; i++) {
     const t = i / count;
     const px = -length / 2 + t * length;
@@ -691,9 +662,9 @@ function makeCableTray(length, x, z, rotY, height) {
   return g;
 }
 
-function makePipeRun(length, radius, x, z, rotY, height, color) {
+function makePipeRun(length, radius, x, z, rotY, height, color, yOffset = 0) {
   const g = new THREE.Group();
-  g.position.set(x, 0, z);
+  g.position.set(x, yOffset, z);
   g.rotation.y = rotY;
 
   const pipeMat = new THREE.MeshStandardMaterial({
@@ -710,8 +681,7 @@ function makePipeRun(length, radius, x, z, rotY, height, color) {
   pipe.position.y = height;
   g.add(pipe);
 
-  // support stands
-  const count = Math.floor(length / 3);
+  const count = Math.max(1, Math.floor(length / 3));
   for (let i = 0; i <= count; i++) {
     const t = i / count;
     const px = -length / 2 + t * length;
@@ -732,8 +702,7 @@ function makePipeRun(length, radius, x, z, rotY, height, color) {
     g.add(cradle);
   }
 
-  // pipe flanges every 6 units
-  const flanges = Math.floor(length / 6);
+  const flanges = Math.max(1, Math.floor(length / 6));
   for (let i = 1; i < flanges; i++) {
     const px = -length / 2 + (i / flanges) * length;
     const flange = new THREE.Mesh(
@@ -789,7 +758,6 @@ function makeMountains(rangeCount) {
       );
       cone.position.set(Math.cos(a) * r.radius, h / 2, Math.sin(a) * r.radius);
       cone.rotation.y = Math.random() * Math.PI * 2;
-      // squish some of them so the silhouette is not all cones
       cone.scale.z = 0.6 + Math.random() * 0.5;
       g.add(cone);
     }
@@ -799,14 +767,12 @@ function makeMountains(rangeCount) {
 }
 
 // ============================================================
-// DISTANT CITY SKYLINE
-// Blocks with lit windows along one side of the horizon.
+// DISTANT CITY
 // ============================================================
 
 function makeDistantCity(buildingCount) {
   const count = buildingCount || 60;
   const g = new THREE.Group();
-
 
   const blockMat = new THREE.MeshStandardMaterial({
     color: 0x12121c,
@@ -838,7 +804,6 @@ function makeDistantCity(buildingCount) {
     block.rotation.y = -a;
     g.add(block);
 
-    // window lights — thin strip on the facing side
     const facing = new THREE.Mesh(
       new THREE.PlaneGeometry(w * 0.85, h * 0.85),
       windowMat
@@ -857,7 +822,6 @@ function makeDistantCity(buildingCount) {
 
 // ============================================================
 // DUST PARTICLES
-// Small drifting motes in the air near the pad.
 // ============================================================
 
 function makeDustField(countArg) {
@@ -893,19 +857,7 @@ function makeDustField(countArg) {
 
 // ============================================================
 // TOWERS, WATER TOWER, TANKS, FLOODLIGHTS, HANGARS
-// (unchanged from previous version, kept here for completeness)
 // ============================================================
-
-const MAT_STEEL = new THREE.MeshStandardMaterial({ color: 0x6a6a74, roughness: 0.42, metalness: 0.85 });
-const MAT_STEEL_DARK = new THREE.MeshStandardMaterial({ color: 0x2a2a32, roughness: 0.38, metalness: 0.9 });
-const MAT_WHITE = new THREE.MeshStandardMaterial({ color: 0xd8d8dc, roughness: 0.55, metalness: 0.1 });
-const MAT_HAZARD_YELLOW = new THREE.MeshStandardMaterial({ color: 0xd9a520, roughness: 0.6, metalness: 0.3 });
-const MAT_HAZARD_DARK = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.6, metalness: 0.3 });
-const MAT_HAZARD_RED = new THREE.MeshStandardMaterial({ color: 0xb8332a, roughness: 0.6, metalness: 0.3 });
-const MAT_HANGAR = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.7, metalness: 0.2 });
-const MAT_HANGAR_DARK = new THREE.MeshStandardMaterial({ color: 0x22262e, roughness: 0.75, metalness: 0.15 });
-const MAT_LIGHT_HOUSING = new THREE.MeshStandardMaterial({ color: 0x1a1a20, roughness: 0.5, metalness: 0.6 });
-const MAT_GLOW = new THREE.MeshBasicMaterial({ color: 0xfff4c4, transparent: true, opacity: 0.95 });
 
 function makeLightningTower(x, z) {
   const g = new THREE.Group();
@@ -1108,26 +1060,28 @@ export function createEnvironment(scene, preset) {
   group.add(makeDistantCity(q.cityBuildings));
   group.add(makePad());
 
-  // cable trays — only if the preset allows any
+  // Cable trays — run on the ground, well outside the 70-wide pad.
+  // yOffset = -1.2 puts them at ground level (below the pad top at -0.30).
   const trays = [
-    [84, 0, -38, 0, 0.8],
-    [84, 0,  38, 0, 0.8],
-    [84, -44, 0, Math.PI / 2, 0.8],
+    [64, 0,   -52, 0, 0.5, -1.2],
+    [64, 0,    52, 0, 0.5, -1.2],
+    [64, -52,  0, Math.PI / 2, 0.5, -1.2],
   ];
   for (let i = 0; i < Math.min(q.cableTrays, trays.length); i++) {
     group.add(makeCableTray(...trays[i]));
   }
 
-  // pipe runs
+  // Pipe runs — same treatment, on the ground beside the pad.
   const pipes = [
-    [84, 0.35, 0, -42, 0, 0.7, 0xa0a0a8],
-    [84, 0.25, 0, 42, 0, 1.1, 0x9a5a44],
-    [84, 0.3, 44, 0, Math.PI / 2, 0.9, 0x8a8a94],
+    [64, 0.35, 0,  -58, 0, 0.5, 0xa0a0a8, -1.2],
+    [64, 0.25, 0,   58, 0, 0.5, 0x9a5a44, -1.2],
+    [64, 0.30, 58,  0, Math.PI / 2, 0.5, 0x8a8a94, -1.2],
   ];
   for (let i = 0; i < Math.min(q.pipeRuns, pipes.length); i++) {
     group.add(makePipeRun(...pipes[i]));
   }
 
+  // Lightning towers — just outside the pad edge
   const towers = [];
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
@@ -1137,16 +1091,17 @@ export function createEnvironment(scene, preset) {
   }
 
   const waterTower = makeWaterTower();
-  waterTower.position.set(-46, 0, -22);
+  waterTower.position.set(-52, 0, -26);
   group.add(waterTower);
 
-  group.add(makeStorageSphere(44, -18, 5.5));
-  group.add(makeStorageSphere(52, -10, 4.2));
+  group.add(makeStorageSphere(46, -18, 5.5));
+  group.add(makeStorageSphere(54, -10, 4.2));
 
+  // Floodlights — outside the pad (radius 42 > half-pad 35)
   const floodlights = [];
   for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2;
-    const mast = makeFloodlight(Math.cos(a) * 32, Math.sin(a) * 32, -a + Math.PI);
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 8;
+    const mast = makeFloodlight(Math.cos(a) * 42, Math.sin(a) * 42, -a + Math.PI);
     group.add(mast);
     floodlights.push(mast);
   }

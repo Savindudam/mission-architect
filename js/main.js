@@ -10,11 +10,17 @@ async function loadJSON(path) {
   return res.json();
 }
 
+import { mountDebrief } from './screens/debrief.js';
+
+import { mountLanding } from './screens/landing.js';
+
 const screens = {
   missions: mountMissions,
   rocketSelect: mountRocketSelect,
   builder: mountBuilder,
   flight: mountFlight,
+  landing: mountLanding,   // <— new
+  debrief: mountDebrief,
 };
 
 function goTo(name) {

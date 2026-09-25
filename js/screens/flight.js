@@ -785,12 +785,18 @@ export async function mountFlight(root) {
       dataCollected: Math.round(resources.data),
       solsFlown: sim.sol,
     };
+    state.lastScore = Math.round(
+  ((resources.fuel || 0) * 0.3 + (resources.hull || 0) * 0.4 + Math.min(100, resources.data || 0) * 0.3)
+);
 
     addLog('CRUISE ENDED: ' + text, reason === 'arrived' ? 'success' : 'fail');
 
     setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('navigate', { detail: 'debrief' }));
-    }, 1500);
+  // was: window.dispatchEvent(new CustomEvent('navigate', { detail: 'debrief' }));
+  window.dispatchEvent(new CustomEvent('navigate', {
+    detail: reason === 'arrived' ? 'landing' : 'debrief',
+  }));
+}, 1500);
   }
 
   // ---- main loop ----

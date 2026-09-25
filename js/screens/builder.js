@@ -1,9 +1,8 @@
 import {
   state, installPart, removePart, setValidation, setFlex, totals,
-  markMissionComplete,
 } from '../engine/state.js';
 import {
-  checkMission, computeDesignPerformance, scoreFlight,
+  checkMission, computeDesignPerformance,
 } from '../engine/mission_check.js';
 import { validate } from '../engine/validate.js';
 import { computeFlex } from '../engine/flex.js';
@@ -11,7 +10,7 @@ import { createScene } from '../three/scene.js';
 import {
   buildRocket, applyFlex,
   buildSupportTower, resetClamps,
-  playLaunchSequence, hideAllFlames,
+  playLaunchSequence, playAscentSequence, hideAllFlames,
   computeFlightQuality, computeStackPositions,
 } from '../three/rocket.js';
 import { loadQuality } from '../three/quality.js';
@@ -59,9 +58,6 @@ const SIZE_ORDER = { S: 0, M: 1, L: 2, XL: 3 };
 
 // =========================================================
 // STRUCTURAL SUPPORT
-// A slot only holds load if every slot below it is filled AND
-// supported. Side-attach parts (grid fins, power) hang off the
-// stack without participating in the load path.
 // =========================================================
 
 const STACK_ORDER = [
@@ -77,7 +73,7 @@ function computeStackSupport(template, installed) {
   for (const p of installed) bySlot[p.slot] = p;
 
   const status = {};
-  let chainIntact = true; // the pad always supports the bottom
+  let chainIntact = true;
 
   for (const slot of STACK_ORDER) {
     if (!template.activeSlots.includes(slot)) continue;
@@ -86,8 +82,6 @@ function computeStackSupport(template, installed) {
     const isSideAttach = SIDE_ATTACH.has(slot);
 
     if (isSideAttach) {
-      // side-attached: it only needs the chain to be intact around
-      // its mounting point. It does not change the chain itself.
       status[slot] = { hasPart, isSupported: chainIntact && hasPart };
       continue;
     }
@@ -280,9 +274,6 @@ export function mountBuilder(root) {
   });
 
   // ---- orphan drop ----
-  // Detaches any unsupported segment from the stack and lays it on
-  // the ground beside the pad. Deterministic per-slot so the layout
-  // is stable across re-renders.
 
   function dropOrphans(support) {
     const segments = three.rocketGroup.userData.segments || [];
@@ -316,7 +307,6 @@ export function mountBuilder(root) {
       const roll = 1.25 + ((seed >> 16) % 40) / 100;
 
       const dist = 2.2 + i * 0.9;
-      const h = seg.userData.height || 1;
       const d = seg.userData.diameter || 1;
 
       seg.position.x = wp.x + Math.cos(angle) * dist;
@@ -330,14 +320,15 @@ export function mountBuilder(root) {
   }
 
   // ---- rebuild rocket ----
+  // NOTE: this function deliberately does NOT touch the camera.
+  // The camera is only framed once, at the end of mountBuilder.
 
   function rebuildRocket() {
-    const { hitboxes, totalHeight } = buildRocket(
+    const { hitboxes } = buildRocket(
       three.rocketGroup, template, state.installed
     );
     currentHitboxes = hitboxes;
 
-    // 1. flex on the intact chain
     const flex = computeFlex(state.installed.map(p => ({
       id: p.id,
       name: p.name,
@@ -348,13 +339,13 @@ export function mountBuilder(root) {
     setFlex(flex);
     applyFlex(three.rocketGroup, flex);
 
-    // 2. support pass — drop anything floating
     const support = computeStackSupport(template, state.installed);
     dropOrphans(support);
 
-    // 3. camera + tower framing
+    // Rebuild the support tower to match the current stack.
     const stack = computeStackPositions(template);
     const oxPos = stack.positions.oxidizer_tank;
+    const totalHeight = three.rocketGroup.userData.totalHeight || 5;
     const clampY = oxPos ? oxPos.center : totalHeight * 0.35;
 
     const scale = SIZE_SCALE_MAP[template.sizeClassMax] || 1.0;
@@ -363,10 +354,6 @@ export function mountBuilder(root) {
 
     three.enableShadows(three.rocketGroup);
     three.enableShadows(supportGroup);
-
-    three.controls.target.set(0, totalHeight / 2, 0);
-    three.camera.position.set(totalHeight * 0.9, totalHeight * 0.7, totalHeight * 1.3);
-    three.controls.update();
   }
 
   // ---- slot list on the left ----
@@ -522,8 +509,6 @@ export function mountBuilder(root) {
     const msg = root.querySelector('#engineer-msg');
     if (!msg) return;
 
-    // 1. Structural support fault takes priority. A floating stack
-    //    is the loudest possible problem.
     const support = computeStackSupport(template, state.installed);
     if (support.firstOrphan) {
       const label = (SLOT_LABELS[support.firstOrphan] || support.firstOrphan).toLowerCase();
@@ -644,12 +629,11 @@ export function mountBuilder(root) {
     alert('Saved as "' + name + '"');
   });
 
-  // ---- test fire — full launch sequence ----
+  // ---- test fire — hover-and-land check only ----
 
   root.querySelector('#btn-fire').addEventListener('click', () => {
     if (launchActive) return;
 
-    // Refuse to ignite a broken stack. The engineer line explains why.
     const support = computeStackSupport(template, state.installed);
     if (support.orphans.length > 0) {
       const el = root.querySelector('#engineer-msg');
@@ -664,7 +648,7 @@ export function mountBuilder(root) {
     lockButtons(true);
 
     const hint = root.querySelector('#canvas-hint');
-    if (hint) hint.textContent = 'LAUNCH SEQUENCE ACTIVE';
+    if (hint) hint.textContent = 'TEST FIRE ACTIVE';
 
     playLaunchSequence({
       rocketGroup: three.rocketGroup,
@@ -700,48 +684,24 @@ export function mountBuilder(root) {
         const hint = root.querySelector('#canvas-hint');
         if (hint) hint.textContent = 'DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A SLOT';
 
-        let score = 0;
-        let missionPassed = false;
-        let checkResult = null;
-
-        if (state.mission) {
-          const perf = computeDesignPerformance();
-          checkResult = checkMission(state.mission, perf);
-          if (success && checkResult.allPass) {
-            score = scoreFlight(state.mission, perf, true);
-            missionPassed = true;
-            markMissionComplete(state.mission.id);
-          }
-        }
-
         const el = root.querySelector('#engineer-msg');
         if (el) {
-          el.className = 'engineer-msg ' + (missionPassed ? 'ok' : 'block');
-          if (missionPassed) {
-            el.textContent = `MISSION COMPLETE · ${state.mission.name} · score ${score} / 100`;
-          } else if (!success) {
-            el.textContent = 'ENGINEER: Flight failed. ' + info.reason;
-          } else if (checkResult && !checkResult.allPass) {
-            const failed = checkResult.checks.filter(c => !c.pass).map(c => c.label).join(', ');
-            el.textContent = 'ENGINEER: Flight succeeded but the design misses the mission requirements: ' + failed + '.';
+          if (success) {
+            el.className = 'engineer-msg ok';
+            el.textContent = 'ENGINEER: Test fire clean. Vehicle is ready for launch.';
           } else {
-            el.textContent = 'ENGINEER: Clean flight.';
+            el.className = 'engineer-msg block';
+            el.textContent = 'ENGINEER: Test fire failed. ' + (info?.reason || '');
           }
         }
 
         renderEngineer();
         renderMissionPanel();
-
-        if (missionPassed) {
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('navigate', { detail: 'flight' }));
-          }, 2200);
-        }
       },
     });
   });
 
-  // ---- launch mission — same sequence, gated by the mission check ----
+  // ---- launch mission — full ascent into orbit ----
 
   root.querySelector('#btn-confirm').addEventListener('click', () => {
     if (launchActive) return;
@@ -749,12 +709,104 @@ export function mountBuilder(root) {
       alert('No mission selected.');
       return;
     }
-    root.querySelector('#btn-fire').click();
+
+    const support = computeStackSupport(template, state.installed);
+    if (support.orphans.length > 0) {
+      const el = root.querySelector('#engineer-msg');
+      if (el) {
+        el.className = 'engineer-msg block';
+        el.textContent = 'ENGINEER: Cannot launch. Parts have fallen off the stack.';
+      }
+      return;
+    }
+
+    launchActive = true;
+    lockButtons(true);
+
+    const hint = root.querySelector('#canvas-hint');
+    if (hint) hint.textContent = 'ASCENT IN PROGRESS';
+
+    playAscentSequence({
+      rocketGroup: three.rocketGroup,
+      supportGroup,
+      scene: three.scene,
+      camera: three.camera,
+      controls: three.controls,
+      template,
+      installed: state.installed,
+      onPhase: (phase) => {
+        const el = root.querySelector('#engineer-msg');
+        if (!el) return;
+        el.className = 'engineer-msg info';
+        if (phase === 'clamps')   el.textContent = 'ENGINEER: Hold-down clamps released.';
+        if (phase === 'ignition') el.textContent = 'ENGINEER: Main engine start. All systems nominal.';
+        if (phase === 'liftoff')  el.textContent = 'ENGINEER: Liftoff. Tower cleared.';
+        if (phase === 'maxq')     el.textContent = 'ENGINEER: Max-Q. Vehicle under aerodynamic load.';
+        if (phase === 'engine')   el.textContent = 'ENGINEER: First stage still nominal.';
+        if (phase === 'staging')  el.textContent = 'ENGINEER: Stage separation confirmed.';
+        if (phase === 'upper')    el.textContent = 'ENGINEER: Second stage ignition. Coasting to insertion.';
+        if (phase === 'coast')    el.textContent = 'ENGINEER: On orbit. Handing off to Mission Control.';
+      },
+      onComplete: (success, info) => {
+        launchActive = false;
+        lockButtons(false);
+
+        const hint = root.querySelector('#canvas-hint');
+        if (hint) hint.textContent = 'DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A SLOT';
+
+        if (success) {
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('navigate', { detail: 'flight' }));
+          }, 500);
+        } else {
+          const el = root.querySelector('#engineer-msg');
+          if (el) {
+            el.className = 'engineer-msg block';
+            el.textContent = 'ENGINEER: Launch failed. ' + (info?.reason || 'Vehicle lost during ascent.');
+          }
+
+          if (!state.flight) state.flight = {};
+          state.flight.result = {
+            reason: 'aborted',
+            text: info?.reason || 'Vehicle lost during ascent.',
+            resources: { fuel: 0, power: 0, hull: 0, data: 0 },
+            dataCollected: 0,
+            solsFlown: 0,
+          };
+
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('navigate', { detail: 'debrief' }));
+          }, 1800);
+        }
+      },
+    });
   });
 
   // ---- first render ----
 
   renderAll();
+
+  // ---- frame the rocket ONCE, after the first render ----
+  // This is the only place the camera is touched during the builder's
+  // lifetime. Installing or removing parts calls rebuildRocket() but
+  // does not touch the camera, so the player's view is preserved.
+
+  (function frameCameraOnce() {
+    const totalHeight = three.rocketGroup.userData.totalHeight || 10;
+
+    // Push controls target to the vertical middle of the stack.
+    three.controls.target.set(0, totalHeight * 0.5, 0);
+
+    // Place the camera at a 3/4 wide shot that fully contains the rocket
+    // with margin on every side.
+    three.camera.position.set(
+      totalHeight * 1.8,
+      totalHeight * 1.0,
+      totalHeight * 2.2
+    );
+
+    three.controls.update();
+  })();
 
   // ---- clean up when the screen unmounts ----
 

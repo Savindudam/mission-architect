@@ -4228,3 +4228,112 @@
   .flight-resources { grid-template-columns: repeat(2, 1fr); }
   .flight-log { height: 90px; }
 }
+
+/* ==========================================================
+   LANDING SEQUENCE
+   ========================================================== */
+
+.landing-screen .flight-canvas-wrap {
+  position: relative;
+}
+
+.landing-hud {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.landing-telemetry {
+  background: rgba(10, 10, 20, 0.7);
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+  backdrop-filter: blur(4px);
+}
+
+.landing-tele-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 2px;
+  gap: 16px;
+}
+
+.landing-tele-key {
+  color: var(--text-dim);
+}
+
+.landing-tele-val {
+  color: var(--accent);
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.landing-log {
+  width: 260px;
+  max-height: 130px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(10, 10, 20, 0.7);
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  backdrop-filter: blur(4px);
+  font-size: 10px;
+}
+
+.landing-log .log-entry {
+  border: none;
+  padding: 0;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.landing-log .log-entry.log-info    { color: var(--text-dim); }
+.landing-log .log-entry.log-warn    { color: var(--warn); }
+.landing-log .log-entry.log-success { color: var(--good); }
+
+.landing-skip {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  padding: 8px 14px;
+  background: rgba(10, 10, 20, 0.8);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.landing-skip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.landing-fade {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s linear;
+  z-index: 5;
+}
+
+@media (max-width: 900px) {
+  .landing-log { width: 180px; max-height: 100px; }
+  .landing-telemetry { min-width: 140px; padding: 8px 10px; }
+  .landing-tele-row { font-size: 9px; }
+}
